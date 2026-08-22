@@ -6,13 +6,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 
+using Alethic.AspNetCore.EcmaScript.Node.Hosting;
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-
-using Alethic.AspNetCore.EcmaScript.Node.Hosting;
 
 namespace Alethic.AspNetCore.EcmaScript.Node;
 
@@ -21,10 +21,12 @@ namespace Alethic.AspNetCore.EcmaScript.Node;
 /// </summary>
 public class NodeServicesOptions
 {
+
 	internal const string TimeoutConfigPropertyName = nameof(InvocationTimeoutMilliseconds);
-	private const int DefaultInvocationTimeoutMilliseconds = 60 * 1000;
-	private const string LogCategoryName = "Alethic.AspNetCore.EcmaScript.Node";
-	private static readonly string[] DefaultWatchFileExtensions = { ".js", ".jsx", ".ts", ".tsx", ".json", ".html" };
+	const int DefaultInvocationTimeoutMilliseconds = 60 * 1000;
+	const string LogCategoryName = "Alethic.AspNetCore.EcmaScript.Node";
+
+	static readonly string[] DefaultWatchFileExtensions = { ".js", ".jsx", ".ts", ".tsx", ".json", ".html" };
 
 	/// <summary>
 	/// Creates a new instance of <see cref="NodeServicesOptions"/>.
@@ -54,15 +56,14 @@ public class NodeServicesOptions
 
 		var applicationLifetime = serviceProvider.GetService<IHostApplicationLifetime>();
 		if (applicationLifetime != null)
-		{
 			ApplicationStoppingToken = applicationLifetime.ApplicationStopping;
-		}
 
 		// If the DI system gives us a logger, use it. Otherwise, set up a default one.
 		var loggerFactory = serviceProvider.GetService<ILoggerFactory>();
 		NodeInstanceOutputLogger = loggerFactory != null
 			? loggerFactory.CreateLogger(LogCategoryName)
 			: NullLogger.Instance;
+
 		// By default, we use this package's built-in out-of-process-via-HTTP hosting/transport
 		this.UseHttpHosting();
 	}

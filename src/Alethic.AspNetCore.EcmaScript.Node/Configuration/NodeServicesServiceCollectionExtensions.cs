@@ -14,12 +14,12 @@ namespace Microsoft.Extensions.DependencyInjection;
 /// </summary>
 public static class NodeServicesServiceCollectionExtensions
 {
+
 	/// <summary>
 	/// Adds NodeServices support to the <paramref name="serviceCollection"/>.
 	/// </summary>
 	/// <param name="serviceCollection">The <see cref="IServiceCollection"/>.</param>
-	public static void AddNodeServices(this IServiceCollection serviceCollection)
-		=> AddNodeServices(serviceCollection, _ => { });
+	public static void AddNodeServices(this IServiceCollection serviceCollection) => AddNodeServices(serviceCollection, _ => { });
 
 	/// <summary>
 	/// Adds NodeServices support to the <paramref name="serviceCollection"/>.
@@ -29,9 +29,7 @@ public static class NodeServicesServiceCollectionExtensions
 	public static void AddNodeServices(this IServiceCollection serviceCollection, Action<NodeServicesOptions> setupAction)
 	{
 		if (setupAction == null)
-		{
 			throw new ArgumentNullException(nameof(setupAction));
-		}
 
 		serviceCollection.AddSingleton(typeof(INodeService), serviceProvider =>
 		{
@@ -39,7 +37,6 @@ public static class NodeServicesServiceCollectionExtensions
 			// then we let the developer override those options
 			var options = new NodeServicesOptions(serviceProvider);
 			setupAction(options);
-
 			return NodeServicesFactory.CreateNodeServices(options);
 		});
 	}

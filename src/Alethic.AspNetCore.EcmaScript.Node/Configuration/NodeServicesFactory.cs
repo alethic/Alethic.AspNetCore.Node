@@ -10,6 +10,7 @@ namespace Alethic.AspNetCore.EcmaScript.Node;
 /// </summary>
 public static class NodeServicesFactory
 {
+
 	/// <summary>
 	/// Create an <see cref="INodeService"/> instance according to the supplied options.
 	/// </summary>
@@ -18,10 +19,9 @@ public static class NodeServicesFactory
 	public static INodeService CreateNodeServices(NodeServicesOptions options)
 	{
 		if (options == null)
-		{
 			throw new ArgumentNullException(nameof(options));
-		}
 
 		return new DefaultNodeService(options.NodeInstanceFactory);
 	}
+
 }

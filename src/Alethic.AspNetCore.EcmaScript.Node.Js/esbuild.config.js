@@ -14,3 +14,17 @@ esbuild.build({
 		}),
 	]
 });
+
+esbuild.build({
+	entryPoints: ['src/InProcessNodeInstanceEntryPoint.ts'],
+	outfile: 'dist/entrypoint-inproc.js',
+	bundle: true,
+	minify: true,
+	sourcemap: true,
+	platform: 'node',
+	plugins: [
+		esbuildPluginTsc({
+			force: true
+		}),
+	]
+});

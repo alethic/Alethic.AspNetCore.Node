@@ -4,6 +4,7 @@
         "rollForward": "latestFeature"
     },
 	"msbuild-sdks": {
-		"Microsoft.Build.NoTargets": "3.7.56"
+		"Microsoft.Build.NoTargets": "3.7.56",
+		"Microsoft.VisualStudio.JavaScript.Sdk": "1.0.1738743"
 	}
 }

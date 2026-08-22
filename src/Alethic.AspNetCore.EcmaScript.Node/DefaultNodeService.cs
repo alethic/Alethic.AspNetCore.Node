@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 
 using Alethic.AspNetCore.EcmaScript.Node.Hosting;
 
+using Microsoft.JavaScript.NodeApi.Runtime;
+
 namespace Alethic.AspNetCore.EcmaScript.Node;
 
 /// <summary>
@@ -24,10 +26,12 @@ namespace Alethic.AspNetCore.EcmaScript.Node;
 internal class DefaultNodeService : INodeService
 {
 
-	static TimeSpan ConnectionDrainingTimespan = TimeSpan.FromSeconds(15);
+	static readonly TimeSpan _connectionDrainingTimespan = TimeSpan.FromSeconds(15);
+	static readonly NodeEmbeddingPlatform _platform = new(null, new NodeEmbeddingPlatformSettings() { });
 
-	Func<INodeInstance> _nodeInstanceFactory;
-	INodeInstance _currentNodeInstance;
+	readonly Func<INodeInstance> _nodeInstanceFactory;
+
+	INodeInstance? _currentNodeInstance;
 	object _currentNodeInstanceAccessLock = new object();
 	Exception? _instanceDelayedDisposalException;
 
@@ -37,7 +41,7 @@ internal class DefaultNodeService : INodeService
 	/// <param name="nodeInstanceFactory"></param>
 	internal DefaultNodeService(Func<INodeInstance> nodeInstanceFactory)
 	{
-		_nodeInstanceFactory = nodeInstanceFactory;
+		_nodeInstanceFactory = nodeInstanceFactory ?? throw new ArgumentNullException(nameof(nodeInstanceFactory));
 	}
 
 	public Task<T> InvokeAsync<T>(string moduleName, params object[] args)
@@ -64,7 +68,7 @@ internal class DefaultNodeService : INodeService
 	{
 		ThrowAnyOutstandingDelayedDisposalException();
 
-		var nodeInstance = GetOrCreateCurrentNodeInstance();
+		var nodeInstance = GetOrCreateCurrentNodeRuntime();
 
 		try
 		{
@@ -83,7 +87,7 @@ internal class DefaultNodeService : INodeService
 				{
 					if (_currentNodeInstance == nodeInstance)
 					{
-						var disposalDelay = ex.AllowConnectionDraining ? ConnectionDrainingTimespan : TimeSpan.Zero;
+						var disposalDelay = ex.AllowConnectionDraining ? _connectionDrainingTimespan : TimeSpan.Zero;
 						DisposeNodeInstance(_currentNodeInstance, disposalDelay);
 						_currentNodeInstance = null;
 					}
@@ -151,7 +155,11 @@ internal class DefaultNodeService : INodeService
 		}
 	}
 
-	private INodeInstance GetOrCreateCurrentNodeInstance()
+	/// <summary>
+	/// Gets or creates the current Node.js runtime.
+	/// </summary>
+	/// <returns></returns>
+	INodeInstance GetOrCreateCurrentNodeRuntime()
 	{
 		var instance = _currentNodeInstance;
 		if (instance == null)
@@ -160,17 +168,16 @@ internal class DefaultNodeService : INodeService
 			{
 				instance = _currentNodeInstance;
 				if (instance == null)
-				{
 					instance = _currentNodeInstance = CreateNewNodeInstance();
-				}
 			}
 		}
 
 		return instance;
 	}
 
-	private INodeInstance CreateNewNodeInstance()
+	INodeInstance CreateNewNodeInstance()
 	{
 		return _nodeInstanceFactory();
 	}
+
 }

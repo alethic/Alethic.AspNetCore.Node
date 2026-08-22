@@ -1,9 +1,13 @@
-<Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk">
+<Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk/1.0.1738743">
 	<PropertyGroup>
 		<StartupCommand>npm run dev</StartupCommand>
 		<JavaScriptTestRoot>src\</JavaScriptTestRoot>
 		<JavaScriptTestFramework>Jest</JavaScriptTestFramework>
 		<ShouldRunBuildScript>true</ShouldRunBuildScript>
+		<BuildCommand>npm run build</BuildCommand>
 		<BuildOutputFolder>$(MSBuildProjectDirectory)\dist</BuildOutputFolder>
 	</PropertyGroup>
+	<ItemGroup>
+		<None Remove="dist\**\*" />
+	</ItemGroup>
 </Project>

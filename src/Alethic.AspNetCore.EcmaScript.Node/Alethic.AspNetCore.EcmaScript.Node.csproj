@@ -13,6 +13,8 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+		<PackageReference Include="Microsoft.JavaScript.LibNode" Version="20.1800.202-alethic.4" />
+		<PackageReference Include="Microsoft.JavaScript.NodeApi" Version="0.9.12-g9ad4b260bd" />
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 	</ItemGroup>
 
@@ -27,6 +29,7 @@
 	<Target Name="IncludeEntryPointJs" BeforeTargets="AssignTargetPaths">
 		<ItemGroup>
 			<EmbeddedResource Include="..\Alethic.AspNetCore.EcmaScript.Node.Js\dist\entrypoint-http.js" />
+			<EmbeddedResource Include="..\Alethic.AspNetCore.EcmaScript.Node.Js\dist\entrypoint-inproc.js" />
 		</ItemGroup>
 	</Target>
 
