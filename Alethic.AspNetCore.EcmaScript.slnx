@@ -3,6 +3,10 @@
         <Project Path="src/Alethic.AspNetCore.EcmaScript/Alethic.AspNetCore.EcmaScript.csproj" />
         <Project Path="src/Alethic.AspNetCore.EcmaScript.Node/Alethic.AspNetCore.EcmaScript.Node.csproj" />
     </Folder>
+    <Folder Name="/samples/">
+        <Project Path="samples/Sample.Console/Sample.Console.csproj" />
+        <Project Path="samples/Sample.React/Server/Sample.React.Server.csproj" />
+    </Folder>
     <Folder Name="/tests/">
         <Project Path="tests/Alethic.AspNetCore.EcmaScript.Node.Tests/Alethic.AspNetCore.EcmaScript.Node.Tests.csproj" />
         <Project Path="tests/Alethic.AspNetCore.EcmaScript.Tests/Alethic.AspNetCore.EcmaScript.Tests.csproj" />

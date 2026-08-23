@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Http;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,51 +15,13 @@ namespace Alethic.AspNetCore.EcmaScript.Node;
 /// A rendering engine backed by a Node engine pool.
 /// </summary>
 /// <remarks>
-/// Implements the HTTP request/response abstraction over the application's <c>fetch</c> export. All
-/// the machinery — the adapter glue, how requests travel, the module, the pool — is private to this
-/// class; nothing above sees anything but HTTP.
+/// Implements the HTTP request/response abstraction over the application's <c>fetch</c> export. The
+/// module evaluates untouched — no adapter is appended and nothing is serialized on the way in or
+/// out. The <c>Request</c> and <c>Response</c> objects are built and taken apart directly on the
+/// engine's thread, where those types live.
 /// </remarks>
 public sealed class NodeRenderEngine : IRenderEngine
 {
-
-	/// <summary>
-	/// The adapter appended to the application's module.
-	/// </summary>
-	/// <remarks>
-	/// The <c>Request</c> and <c>Response</c> types are the runtime's, so the place to construct and
-	/// take them apart is inside the runtime rather than from the host. That the request and the
-	/// response head travel as JSON text is likewise a private choice made here, invisible on either
-	/// side of this class. The glue evaluates in the module's own CommonJS scope and adds exports
-	/// alongside the application's.
-	/// </remarks>
-	const string Glue = """
-
-		// --- appended by Alethic.AspNetCore.EcmaScript.Node ---
-		module.exports.__alethicHandle = function (requestJson, payload, signal) {
-			const app = module.exports.default;
-			const req = JSON.parse(requestJson);
-			const request = new Request(req.url, {
-				method: req.method,
-				headers: req.headers,
-				body: payload ?? undefined,
-				signal: signal,
-			});
-			return Promise.resolve(app.fetch(request)).then(response => ({
-				head: JSON.stringify({
-					status: response.status,
-					headers: Array.from(response.headers.entries()),
-				}),
-				body: response.body,
-			}));
-		};
-		module.exports.__alethicRoutes = function (name) {
-			const app = module.exports.default;
-			const fn = app ? app[name] : undefined;
-			if (typeof fn !== 'function')
-				return null;
-			return Promise.resolve(fn.call(app)).then(routes => routes == null ? null : JSON.stringify(routes));
-		};
-		""";
 
 	readonly NodeEnginePool pool;
 	readonly NodeRenderEngineOptions options;
@@ -80,8 +40,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 		this.options = options ?? throw new ArgumentNullException(nameof(options));
 		this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-		var inner = options.Module ?? throw new ArgumentException("A rendering engine needs a module.", nameof(options));
-		module = new GluedSource(inner);
+		module = options.Module ?? throw new ArgumentException("A rendering engine needs a module.", nameof(options));
 	}
 
 	/// <inheritdoc />
@@ -93,12 +52,9 @@ public sealed class NodeRenderEngine : IRenderEngine
 	{
 		ArgumentNullException.ThrowIfNull(request);
 
-		var requestJson = JsonSerializer.Serialize(new RequestDescriptor()
-		{
-			Url = request.RequestUri?.ToString() ?? throw new InvalidOperationException("Request has no URI."),
-			Method = request.Method.Method,
-			Headers = CollectHeaders(request),
-		});
+		var url = request.RequestUri?.ToString() ?? throw new InvalidOperationException("Request has no URI.");
+		var method = request.Method.Method;
+		var headers = CollectHeaders(request);
 
 		byte[]? body = null;
 		if (request.Content is not null)
@@ -109,20 +65,18 @@ public sealed class NodeRenderEngine : IRenderEngine
 		try
 		{
 			var pipe = new Pipe();
-			var head = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+			var head = new TaskCompletionSource<ResponseHead>(TaskCreationOptions.RunContinuationsAsynchronously);
 
 			// The render outlives this method: the response is returned once its head is known, and
 			// its body continues to arrive afterwards. Faults before the head surface to the caller;
 			// faults after it can only truncate the body, the status having already been settled.
-			var pump = PumpAsync(lease, requestJson, body, pipe.Writer, head, cancellationToken);
+			var pump = PumpAsync(lease, url, method, headers, body, pipe.Writer, head, cancellationToken);
 
 			var completed = await Task.WhenAny(head.Task, pump);
 			if (completed == pump)
 				await pump; // faulted before producing a head; observe the exception
 
-			var headValue = JsonSerializer.Deserialize<ResponseHead>(await head.Task
-				?? throw new InvalidOperationException("The application's fetch produced no response."))
-				?? throw new InvalidOperationException("The application's fetch produced no response.");
+			var headValue = await head.Task;
 
 			var response = new HttpResponseMessage((HttpStatusCode)headValue.Status)
 			{
@@ -133,9 +87,9 @@ public sealed class NodeRenderEngine : IRenderEngine
 				Content = new StreamContent(new RenderBodyStream(pipe.Reader.AsStream(), lease, pump)),
 			};
 
-			foreach (var pair in headValue.Headers)
-				if (response.Headers.TryAddWithoutValidation(pair[0], pair[1]) == false)
-					response.Content.Headers.TryAddWithoutValidation(pair[0], pair[1]);
+			foreach (var (name, value) in headValue.Headers)
+				if (response.Headers.TryAddWithoutValidation(name, value) == false)
+					response.Content.Headers.TryAddWithoutValidation(name, value);
 
 			return response;
 		}
@@ -151,14 +105,44 @@ public sealed class NodeRenderEngine : IRenderEngine
 	{
 		await using var lease = await pool.AcquireAsync(cancellationToken);
 
-		var json = await lease.RunAsync(module, async exports =>
+		return await lease.RunAsync(module, async exports =>
 		{
-			var pending = exports.CallMethod("__alethicRoutes", options.RoutesExport);
-			var settled = await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", pending)).AsTask();
-			return settled.IsNullOrUndefined() ? null : (string?)settled;
-		}, cancellationToken);
+			var app = exports["default"];
+			if (app.IsNullOrUndefined())
+				return null;
 
-		return json is null ? null : JsonSerializer.Deserialize<List<RenderRoute>>(json);
+			var function = app[options.RoutesExport];
+			if (function.IsFunction() == false)
+				return null;
+
+			var settled = await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", function.Call(app))).AsTask();
+			if (settled.IsNullOrUndefined())
+				return null;
+
+			// Read the entries directly off the array; nothing is serialized on the way over.
+			var routes = new List<RenderRoute>();
+			var length = (int)settled["length"];
+
+			for (var i = 0; i < length; i++)
+			{
+				var entry = settled[i];
+
+				var pattern = entry["pattern"];
+				var id = entry["id"];
+				var mode = entry["renderMode"];
+
+				routes.Add(new RenderRoute()
+				{
+					Pattern = pattern.IsNullOrUndefined() ? null : (string)pattern,
+					Id = id.IsNullOrUndefined() ? null : (string)id,
+					RenderMode = mode.IsNullOrUndefined() == false && Enum.TryParse<RenderMode>((string)mode, ignoreCase: true, out var parsed)
+						? parsed
+						: RenderMode.Server,
+				});
+			}
+
+			return (IReadOnlyList<RenderRoute>?)routes;
+		}, cancellationToken);
 	}
 
 	/// <summary>
@@ -171,31 +155,37 @@ public sealed class NodeRenderEngine : IRenderEngine
 	/// because that is where it lives.
 	/// </remarks>
 	/// <param name="lease"></param>
-	/// <param name="requestJson"></param>
+	/// <param name="url"></param>
+	/// <param name="method"></param>
+	/// <param name="headers"></param>
 	/// <param name="body"></param>
 	/// <param name="writer"></param>
 	/// <param name="head"></param>
 	/// <param name="cancellationToken"></param>
-	async Task PumpAsync(NodeEngineLease lease, string requestJson, byte[]? body, PipeWriter writer, TaskCompletionSource<string?> head, CancellationToken cancellationToken)
+	async Task PumpAsync(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, byte[]? body, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
 	{
 		try
 		{
 			await lease.RunAsync(module, async exports =>
 			{
+				var app = exports["default"];
+				if (app.IsNullOrUndefined() || app["fetch"].IsFunction() == false)
+					throw new InvalidOperationException($"Module '{module.Name}' has no default export with a fetch function.");
+
 				var controller = JSValue.RunScript("new AbortController()");
 				using var controllerRef = new JSReference(controller, isWeak: false);
 				using var registration = cancellationToken.Register(() => lease.TryPost(
 					() => controllerRef.GetValue().CallMethod("abort", "the request was aborted")));
 
-				var payload = body is null ? JSValue.Null : new JSTypedArray<byte>(body);
-				var pending = exports.CallMethod("__alethicHandle", requestJson, payload, controller["signal"]);
+				var request = BuildRequest(url, method, headers, body, controller["signal"]);
+				var pending = app["fetch"].Call(app, request);
 
 				// Scope ends at the await; everything above but the references is invalid after it.
-				var result = await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", pending)).AsTask();
+				var response = await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", pending)).AsTask();
 
-				head.TrySetResult((string?)result["head"]);
+				head.TrySetResult(new ResponseHead((int)response["status"], CollectResponseHeaders(response)));
 
-				var stream = result["body"];
+				var stream = response["body"];
 				if (stream.IsNullOrUndefined())
 					return 0;
 
@@ -228,98 +218,85 @@ public sealed class NodeRenderEngine : IRenderEngine
 	}
 
 	/// <summary>
-	/// Flattens the request's headers, content headers included, into fetch's pair form.
+	/// Builds the runtime's own <c>Request</c>, value by value. Must be called on the engine's thread.
 	/// </summary>
-	/// <param name="request"></param>
-	static List<string[]> CollectHeaders(HttpRequestMessage request)
+	/// <param name="url"></param>
+	/// <param name="method"></param>
+	/// <param name="headers"></param>
+	/// <param name="body"></param>
+	/// <param name="signal"></param>
+	static JSValue BuildRequest(string url, string method, List<KeyValuePair<string, string>> headers, byte[]? body, JSValue signal)
 	{
-		var headers = new List<string[]>();
+		var init = JSValue.CreateObject();
+		init["method"] = method;
+		init["signal"] = signal;
 
-		foreach (var header in request.Headers)
-			foreach (var value in header.Value)
-				headers.Add([header.Key, value]);
+		// Headers in fetch's pair form: an array of [name, value] arrays.
+		var pairs = JSValue.CreateArray(headers.Count);
+		for (var i = 0; i < headers.Count; i++)
+		{
+			var pair = JSValue.CreateArray(2);
+			pair[0] = headers[i].Key;
+			pair[1] = headers[i].Value;
+			pairs[i] = pair;
+		}
 
-		if (request.Content is not null)
-			foreach (var header in request.Content.Headers)
-				foreach (var value in header.Value)
-					headers.Add([header.Key, value]);
+		init["headers"] = pairs;
+
+		if (body is not null)
+			init["body"] = new JSTypedArray<byte>(body);
+
+		return JSValue.Global["Request"].CallAsConstructor(url, init);
+	}
+
+	/// <summary>
+	/// Reads the response's headers out through their own iterator. Must be called on the engine's
+	/// thread.
+	/// </summary>
+	/// <param name="response"></param>
+	static List<KeyValuePair<string, string>> CollectResponseHeaders(JSValue response)
+	{
+		var headers = new List<KeyValuePair<string, string>>();
+		var entries = response["headers"].CallMethod("entries");
+
+		while (true)
+		{
+			var step = entries.CallMethod("next");
+			if ((bool)step["done"])
+				break;
+
+			var pair = step["value"];
+			headers.Add(new((string)pair[0], (string)pair[1]));
+		}
 
 		return headers;
 	}
 
 	/// <summary>
-	/// The application's module with the adapter appended.
+	/// Flattens the request's headers, content headers included.
 	/// </summary>
-	sealed class GluedSource : NodeModuleSource
+	/// <param name="request"></param>
+	static List<KeyValuePair<string, string>> CollectHeaders(HttpRequestMessage request)
 	{
+		var headers = new List<KeyValuePair<string, string>>();
 
-		readonly NodeModuleSource inner;
+		foreach (var header in request.Headers)
+			foreach (var value in header.Value)
+				headers.Add(new(header.Key, value));
 
-		/// <summary>
-		/// Initializes a new instance.
-		/// </summary>
-		/// <param name="inner"></param>
-		public GluedSource(NodeModuleSource inner)
-		{
-			this.inner = inner;
-		}
+		if (request.Content is not null)
+			foreach (var header in request.Content.Headers)
+				foreach (var value in header.Value)
+					headers.Add(new(header.Key, value));
 
-		/// <inheritdoc />
-		public override string Key => "render:" + inner.Key;
-
-		/// <inheritdoc />
-		public override string Name => inner.Name;
-
-		/// <inheritdoc />
-		public override async ValueTask<string> ReadAsync(CancellationToken cancellationToken) =>
-			await inner.ReadAsync(cancellationToken) + Glue;
-
+		return headers;
 	}
 
 	/// <summary>
-	/// The request as the glue receives it.
+	/// The part of a response known before its body has arrived.
 	/// </summary>
-	sealed class RequestDescriptor
-	{
-
-		/// <summary>
-		/// Absolute request URL.
-		/// </summary>
-		[JsonPropertyName("url")]
-		public required string Url { get; init; }
-
-		/// <summary>
-		/// HTTP method.
-		/// </summary>
-		[JsonPropertyName("method")]
-		public required string Method { get; init; }
-
-		/// <summary>
-		/// Headers in fetch's pair form.
-		/// </summary>
-		[JsonPropertyName("headers")]
-		public required List<string[]> Headers { get; init; }
-
-	}
-
-	/// <summary>
-	/// The response head as the glue reports it.
-	/// </summary>
-	sealed class ResponseHead
-	{
-
-		/// <summary>
-		/// HTTP status code.
-		/// </summary>
-		[JsonPropertyName("status")]
-		public int Status { get; init; }
-
-		/// <summary>
-		/// Headers in fetch's pair form.
-		/// </summary>
-		[JsonPropertyName("headers")]
-		public List<string[]> Headers { get; init; } = [];
-
-	}
+	/// <param name="Status"></param>
+	/// <param name="Headers"></param>
+	readonly record struct ResponseHead(int Status, List<KeyValuePair<string, string>> Headers);
 
 }

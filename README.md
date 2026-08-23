@@ -92,6 +92,11 @@ var result = await lease.RunAsync(NodeModuleSource.FromFile("tool.cjs"), async e
 - Reference the RID-specific `Microsoft.JavaScript.LibNode.<rid>` package. The umbrella package
   depends on every platform at once and lands ~640 MB of native libraries in the output.
 
-A complete React 19 sample — server rendering with suspended data resolved into the markup, client
-hydration over it, and a route manifest driving the endpoint table — lives under
-`samples/Sample.React`. Build the client with `npm run build` there, then `dotnet run` the server.
+## Samples
+
+- `samples/Sample.React` — the web path end to end: React 19 server rendering with suspended data
+  resolved into the markup, client hydration over it, and a route manifest driving the endpoint
+  table. Build the client with `npm run build` there, then `dotnet run` the server.
+- `samples/Sample.Console` — the pool with no web anywhere in sight: a console application takes a
+  lease and drives a plain JavaScript module, synchronous calls, promises, and structured results
+  alike, through ordinary node-api-dotnet.
