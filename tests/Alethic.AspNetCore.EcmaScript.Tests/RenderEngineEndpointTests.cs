@@ -11,6 +11,7 @@ using Alethic.AspNetCore.EcmaScript.Node;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -166,6 +167,20 @@ public class RenderEngineEndpointTests
 
 		// Client routes are not mapped, so the callback must not see them either; null is the fallback.
 		Assert.Equal(["park", "about", null], seen);
+	}
+
+	[Fact]
+	public async Task Manifest_ids_name_endpoints_for_LinkGenerator()
+	{
+		var (app, _, _) = await StartAsync(AppModule);
+		await using var _1 = app;
+
+		// The manifest's id names the endpoint, so ASP.NET's own LinkGenerator builds URLs by route
+		// name — canonical redirects and sitemaps use the platform facility, not a bespoke one.
+		var links = app.Services.GetRequiredService<LinkGenerator>();
+
+		Assert.Equal("/parks/enchanted-rock", links.GetPathByName("park", new { parkRef = "enchanted-rock" }));
+		Assert.Equal("/about", links.GetPathByName("about", values: null));
 	}
 
 	[Fact]

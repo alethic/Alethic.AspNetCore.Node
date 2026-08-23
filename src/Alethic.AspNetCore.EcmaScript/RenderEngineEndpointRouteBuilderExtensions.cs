@@ -83,6 +83,13 @@ public static class RenderEngineEndpointRouteBuilderExtensions
 
 			var endpoint = endpoints.Map(route.Pattern, context => DispatchAsync(context, engine));
 			endpoint.WithMetadata(route);
+
+			// A route with an id is an addressable endpoint: LinkGenerator can build its URL by name
+			// (GetPathByName(id, values)), which is what server-side code uses for canonical
+			// redirects, sitemaps, and links — no bespoke URL generator required.
+			if (route.Id is not null)
+				endpoint.WithName(route.Id);
+
 			options.ConfigureEndpoint?.Invoke(route, endpoint);
 		}
 
