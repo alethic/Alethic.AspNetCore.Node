@@ -34,6 +34,28 @@ public class NodeRenderEngineContractTests
 	}
 
 	[TestMethod]
+	public async Task A_module_exports_assignment_is_the_application()
+	{
+		// Some bundlers assign a default-only module straight to module.exports rather than hanging
+		// a default property off it; both interop shapes must serve.
+		const string Module =
+			"module.exports = { " +
+			"fetch(request) { return new Response('direct:' + new URL(request.url).pathname, { status: 200 }); }, " +
+			"routes() { return [{ pattern: '/d/:id', renderMode: 'Server', id: 'd' }]; } };";
+
+		var (services, engine) = Build(Module);
+		await using var _ = services;
+
+		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/x");
+		using var response = await engine.SendAsync(request);
+		Assert.AreEqual("direct:/x", await response.Content.ReadAsStringAsync());
+
+		var routes = await engine.GetRoutesAsync();
+		Assert.IsNotNull(routes);
+		Assert.AreEqual("/d/:id", routes[0].Pattern);
+	}
+
+	[TestMethod]
 	public async Task A_bare_function_default_is_the_fetch_handler()
 	{
 		// What createRequestHandler-style factories produce: the handler itself, not an object

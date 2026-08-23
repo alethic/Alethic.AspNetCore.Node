@@ -92,7 +92,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 
 			var envRef = new JSReference(env, isWeak: false);
 
-			var app = exports["default"];
+			var app = Application(exports);
 			if (app.IsNullOrUndefined() == false && app["init"].IsFunction())
 			{
 				// Scope ends at the await, so the env is re-read through its reference after it.
@@ -167,7 +167,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 
 		return await lease.RunAsync(module, async exports =>
 		{
-			var app = exports["default"];
+			var app = Application(exports);
 			if (app.IsNullOrUndefined())
 				return null;
 
@@ -234,7 +234,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 				// The module-worker convention, with one leniency: a bare function as the default
 				// export is the fetch handler itself, which is what createRequestHandler-style
 				// factories produce.
-				var app = exports["default"];
+				var app = Application(exports);
 				var fetch = app.IsFunction() ? app : app.IsNullOrUndefined() ? app : app["fetch"];
 				if (fetch.IsFunction() == false)
 					throw new InvalidOperationException($"Module '{module.Name}' has no default export with a fetch function.");
@@ -282,6 +282,19 @@ public sealed class NodeRenderEngine : IRenderEngine
 			head.TrySetException(e);
 			await writer.CompleteAsync(e);
 		}
+	}
+
+	/// <summary>
+	/// Resolves the application from a module's exports: the default export where one exists, and
+	/// the exports object itself where the bundler assigned it directly — some bundlers set
+	/// module.exports outright where others hang a default property off it, and both shapes must
+	/// serve. Must be called on the engine's thread.
+	/// </summary>
+	/// <param name="exports"></param>
+	static JSValue Application(JSValue exports)
+	{
+		var app = exports["default"];
+		return app.IsNullOrUndefined() ? exports : app;
 	}
 
 	/// <summary>
