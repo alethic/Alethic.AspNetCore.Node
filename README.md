@@ -99,9 +99,8 @@ The pool works with no web anywhere in sight — a lease is a claim on one engin
 
 ```csharp
 var pool = provider.GetRequiredService<NodeEnginePool>();
-await using var lease = await pool.AcquireAsync();
 
-var result = await lease.RunAsync(NodeModuleSource.FromFile("tool.cjs"), async exports =>
+var result = await pool.RunAsync(NodeModuleSource.FromFile("tool.cjs"), async exports =>
     (int)await ((JSPromise)exports.CallMethod("transform", input)).AsTask());
 ```
 

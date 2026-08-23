@@ -16,18 +16,18 @@ await using var provider = services.BuildServiceProvider();
 var pool = provider.GetRequiredService<NodeEnginePool>();
 var module = NodeModuleSource.FromFile(Path.Combine(AppContext.BaseDirectory, "tools.cjs"));
 
-await using var lease = await pool.AcquireAsync();
-
 // Synchronous export: call it, take the primitive result out.
-var slug = await lease.RunAsync(module, exports =>
+var slug = await pool.RunAsync(module, exports =>
 	Task.FromResult((string)exports.CallMethod("slugify", "Enchanted Rock State Natural Area")));
 
 // Asynchronous export: the promise is awaited on the engine's thread, where it lives.
-var digest = await lease.RunAsync(module, async exports =>
+var digest = await pool.RunAsync(module, async exports =>
 	(string)await ((JSPromise)exports.CallMethod("digest", "enchanted rock")).AsTask());
 
 // Structured result: read the properties off while still on the engine's thread, return plain .NET.
-var (characters, words) = await lease.RunAsync(module, exports =>
+// Each one-shot may land on a different engine; a lease (pool.AcquireAsync) pins one when several
+// steps must share per-engine state.
+var (characters, words) = await pool.RunAsync(module, exports =>
 {
 	var stats = exports.CallMethod("stats", "The quick brown fox jumps over the lazy dog");
 	return Task.FromResult(((int)stats["characters"], (int)stats["words"]));

@@ -126,6 +126,19 @@ public class NodeEnginePoolTests
 	}
 
 	[TestMethod]
+	public async Task One_shot_runs_without_a_lease()
+	{
+		await using var services = BuildServices();
+		var pool = services.GetRequiredService<NodeEnginePool>();
+		var module = NodeModuleSource.FromText("add.cjs", "module.exports.add = (a, b) => a + b;");
+
+		// The one-shot acquires and releases internally, so a single call carries no checkout
+		// ceremony — and the capacity comes back, which the second call proves.
+		Assert.AreEqual(5, await pool.RunAsync(module, exports => Task.FromResult((int)exports.CallMethod("add", 2, 3))));
+		Assert.AreEqual(42, await pool.RunAsync(() => Task.FromResult((int)JSValue.RunScript("6 * 7"))));
+	}
+
+	[TestMethod]
 	public async Task Prepare_stands_engines_up_and_warms_them()
 	{
 		await using var services = BuildServices(o => o.EngineCount = 2);

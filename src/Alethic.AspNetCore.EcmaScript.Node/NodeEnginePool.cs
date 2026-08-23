@@ -90,6 +90,39 @@ public sealed class NodeEnginePool : IAsyncDisposable
 	}
 
 	/// <summary>
+	/// Runs one piece of work against a module, on whichever engine is carrying the least, and
+	/// returns the capacity when it completes.
+	/// </summary>
+	/// <remarks>
+	/// The one-shot form: a single call needs no checkout ceremony. Take a lease instead when
+	/// several steps must share one engine — successive one-shots may land on different engines,
+	/// which different per-engine module state would notice — or when the claim must outlive the
+	/// call, as a streamed result does.
+	/// </remarks>
+	/// <typeparam name="T"></typeparam>
+	/// <param name="module"></param>
+	/// <param name="work"></param>
+	/// <param name="cancellationToken"></param>
+	public async Task<T> RunAsync<T>(NodeModuleSource module, Func<Microsoft.JavaScript.NodeApi.JSValue, Task<T>> work, CancellationToken cancellationToken = default)
+	{
+		await using var lease = await AcquireAsync(cancellationToken);
+		return await lease.RunAsync(module, work, cancellationToken);
+	}
+
+	/// <summary>
+	/// Runs one piece of work on an engine's thread, module-free, and returns the capacity when it
+	/// completes.
+	/// </summary>
+	/// <typeparam name="T"></typeparam>
+	/// <param name="work"></param>
+	/// <param name="cancellationToken"></param>
+	public async Task<T> RunAsync<T>(Func<Task<T>> work, CancellationToken cancellationToken = default)
+	{
+		await using var lease = await AcquireAsync(cancellationToken);
+		return await lease.RunAsync(work);
+	}
+
+	/// <summary>
 	/// Brings the pool to its configured size, running the given warmup against each engine.
 	/// </summary>
 	/// <remarks>
