@@ -80,7 +80,7 @@ public class RenderEngineEndpointTests
 
 		var options = new MapRenderEngineOptions();
 		configure?.Invoke(options);
-		var routes = await app.MapRenderEngineAsync(options);
+		var routes = app.MapRenderEngine(options);
 
 		await app.StartAsync();
 		return (app, app.GetTestClient(), routes);

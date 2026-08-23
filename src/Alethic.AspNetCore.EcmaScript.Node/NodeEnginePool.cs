@@ -90,6 +90,19 @@ public sealed class NodeEnginePool : IAsyncDisposable
 	}
 
 	/// <summary>
+	/// Acquires a lease, blocking while the pool grows an engine if it must.
+	/// </summary>
+	/// <remarks>
+	/// The synchronous face of <see cref="AcquireAsync"/>: acquisition against a warm pool is
+	/// immediate, and a cold one costs an engine's startup — a wait the caller has chosen to stand
+	/// in rather than await.
+	/// </remarks>
+	public NodeEngineLease Acquire()
+	{
+		return AcquireAsync().GetAwaiter().GetResult();
+	}
+
+	/// <summary>
 	/// Runs one piece of work against a module, on whichever engine is carrying the least, and
 	/// returns the capacity when it completes.
 	/// </summary>
@@ -120,6 +133,35 @@ public sealed class NodeEnginePool : IAsyncDisposable
 	{
 		await using var lease = await AcquireAsync(cancellationToken);
 		return await lease.RunAsync(work);
+	}
+
+	/// <summary>
+	/// Runs one piece of synchronous work against a module, blocking until it returns.
+	/// </summary>
+	/// <remarks>
+	/// The synchronous one-shot, for work whose value is produced synchronously on the engine's
+	/// thread. Promise-shaped work stays on <see cref="RunAsync{T}(NodeModuleSource, Func{Microsoft.JavaScript.NodeApi.JSValue, Task{T}}, CancellationToken)"/>:
+	/// a promise settles when the engine's loop turns, which no blocked thread can wait out.
+	/// </remarks>
+	/// <typeparam name="T"></typeparam>
+	/// <param name="module"></param>
+	/// <param name="work"></param>
+	public T Run<T>(NodeModuleSource module, Func<Microsoft.JavaScript.NodeApi.JSValue, T> work)
+	{
+		using var lease = Acquire();
+		return lease.Run(module, work);
+	}
+
+	/// <summary>
+	/// Runs one piece of synchronous work on an engine's thread, module-free, blocking until it
+	/// returns.
+	/// </summary>
+	/// <typeparam name="T"></typeparam>
+	/// <param name="work"></param>
+	public T Run<T>(Func<T> work)
+	{
+		using var lease = Acquire();
+		return lease.Run(work);
 	}
 
 	/// <summary>

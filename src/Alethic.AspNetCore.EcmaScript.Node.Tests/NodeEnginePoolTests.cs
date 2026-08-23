@@ -139,6 +139,33 @@ public class NodeEnginePoolTests
 	}
 
 	[TestMethod]
+	public async Task Synchronous_one_shot_blocks_for_a_synchronous_value()
+	{
+		await using var services = BuildServices();
+		var pool = services.GetRequiredService<NodeEnginePool>();
+		var module = NodeModuleSource.FromText("mul.cjs", "module.exports.mul = (a, b) => a * b;");
+
+		// The synchronous twins: same dispatch, no task ceremony, for values produced synchronously
+		// on the engine's thread.
+		Assert.AreEqual(6, pool.Run(module, exports => (int)exports.CallMethod("mul", 2, 3)));
+		Assert.AreEqual(42, pool.Run(() => (int)JSValue.RunScript("6 * 7")));
+	}
+
+	[TestMethod]
+	public async Task Synchronous_and_asynchronous_faces_share_the_module_cache()
+	{
+		await using var services = BuildServices();
+		var pool = services.GetRequiredService<NodeEnginePool>();
+		var module = NodeModuleSource.FromText("count.cjs", "let n = 0; module.exports.next = () => ++n;");
+
+		// One lease pins one engine; if the two faces evaluated the module separately, the counter
+		// would restart instead of continuing.
+		using var lease = pool.Acquire();
+		Assert.AreEqual(1, await lease.RunAsync(module, exports => Task.FromResult((int)exports.CallMethod("next"))));
+		Assert.AreEqual(2, lease.Run(module, exports => (int)exports.CallMethod("next")));
+	}
+
+	[TestMethod]
 	public async Task Prepare_stands_engines_up_and_warms_them()
 	{
 		await using var services = BuildServices(o => o.EngineCount = 2);

@@ -41,11 +41,12 @@ public static class RenderEngineEndpointRouteBuilderExtensions
 	/// route plus a fallback.
 	/// </summary>
 	/// <remarks>
-	/// Awaited before the server starts, deliberately: the prepared engine is what answers the
-	/// manifest query, so the route table is the running application's rather than a copy that could
-	/// drift, and the preparation cost lands at startup instead of under the first request. The cost
-	/// of that choice is intended — an engine that cannot prepare fails the deployment here, not by
-	/// quietly serving nothing.
+	/// Synchronous on purpose: endpoint configuration is synchronous by shape, so this method owns
+	/// the wait rather than making every caller block on a task themselves. The engine prepares and
+	/// answers the manifest query before the server starts — the route table is the running
+	/// application's rather than a copy that could drift, and the preparation cost lands at startup
+	/// instead of under the first request. An engine that cannot prepare fails the deployment here,
+	/// not by quietly serving nothing.
 	///
 	/// Routes marked <see cref="RenderMode.Client"/> are not mapped. Whatever already serves the
 	/// application shell — static assets, a fallback view — keeps serving them, and the engine is
@@ -53,8 +54,7 @@ public static class RenderEngineEndpointRouteBuilderExtensions
 	/// </remarks>
 	/// <param name="endpoints"></param>
 	/// <param name="options"></param>
-	/// <param name="cancellationToken"></param>
-	public static async Task<IReadOnlyList<RenderRoute>> MapRenderEngineAsync(this IEndpointRouteBuilder endpoints, MapRenderEngineOptions? options = null, CancellationToken cancellationToken = default)
+	public static IReadOnlyList<RenderRoute> MapRenderEngine(this IEndpointRouteBuilder endpoints, MapRenderEngineOptions? options = null)
 	{
 		ArgumentNullException.ThrowIfNull(endpoints);
 		options ??= new MapRenderEngineOptions();
@@ -64,9 +64,10 @@ public static class RenderEngineEndpointRouteBuilderExtensions
 			? endpoints.ServiceProvider.GetRequiredService<IRenderEngine>()
 			: endpoints.ServiceProvider.GetRequiredKeyedService<IRenderEngine>(options.ServiceKey);
 
-		await engine.PrepareAsync(cancellationToken);
+		// no synchronization context exists during endpoint configuration, so blocking here cannot deadlock
+		engine.PrepareAsync().GetAwaiter().GetResult();
 
-		var routes = await ReadManifestAsync(engine, options, logger, cancellationToken);
+		var routes = ReadManifestAsync(engine, options, logger, CancellationToken.None).GetAwaiter().GetResult();
 
 		foreach (var route in routes)
 		{

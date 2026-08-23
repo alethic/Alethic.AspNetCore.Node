@@ -20,7 +20,7 @@ as it is produced. Cancellation aborts the rendering itself, not merely the wait
 
 ## Mounting an engine
 
-`MapRenderEngineAsync` prepares the engine ahead of traffic, reads the application's route
+`MapRenderEngine` prepares the engine ahead of traffic, reads the application's route
 manifest, and maps an endpoint per route plus a fallback:
 
 ```csharp
@@ -28,7 +28,7 @@ var app = builder.Build();
 app.UseStaticFiles();
 app.UseRouting();                      // explicit, or the fallback outruns static files
 
-await app.MapRenderEngineAsync();
+app.MapRenderEngine();
 
 await app.RunAsync();
 ```

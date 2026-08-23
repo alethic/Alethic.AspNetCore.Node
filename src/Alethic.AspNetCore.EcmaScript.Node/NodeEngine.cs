@@ -115,6 +115,19 @@ sealed class NodeEngine : IAsyncDisposable
 	}
 
 	/// <summary>
+	/// Evaluates a module on this engine, blocking until its exports exist.
+	/// </summary>
+	/// <remarks>
+	/// Same cache as <see cref="ImportAsync"/>; an evaluation already in flight resolves on the
+	/// engine's thread, so blocking a caller's thread on it cannot deadlock.
+	/// </remarks>
+	/// <param name="source"></param>
+	public JSReference Import(NodeModuleSource source)
+	{
+		return ImportAsync(source, CancellationToken.None).GetAwaiter().GetResult();
+	}
+
+	/// <summary>
 	/// Reads and evaluates a module on this engine's thread.
 	/// </summary>
 	/// <param name="source"></param>

@@ -22,7 +22,7 @@ app.UseStaticFiles();
 app.UseRouting();
 
 // Prepares the engine, asks the application for its routes, and maps them.
-var routes = await app.MapRenderEngineAsync();
+var routes = app.MapRenderEngine();
 app.Logger.LogInformation("Mounted {Count} routes from the application manifest.", routes.Count);
 
 await app.RunAsync();

@@ -26,7 +26,7 @@ lease puts you on an engine's thread where you write ordinary node-api-dotnet.
 
 | Package | Contents |
 |---|---|
-| `Alethic.AspNetCore.EcmaScript` | `IRenderEngine`, the route manifest types, and `MapRenderEngineAsync`. |
+| `Alethic.AspNetCore.EcmaScript` | `IRenderEngine`, the route manifest types, and `MapRenderEngine`. |
 | `Alethic.AspNetCore.EcmaScript.Node` | `NodeEnginePool` and `NodeRenderEngine`. |
 
 ## Shape
@@ -49,7 +49,7 @@ app.UseStaticFiles();
 app.UseRouting();                      // explicit, or the fallback outruns static files
 
 // Prepares the engine, reads the application's own route manifest, maps an endpoint per route.
-await app.MapRenderEngineAsync();
+app.MapRenderEngine();
 
 await app.RunAsync();
 ```

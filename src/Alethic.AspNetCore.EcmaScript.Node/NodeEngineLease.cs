@@ -17,11 +17,16 @@ namespace Alethic.AspNetCore.EcmaScript.Node;
 /// scope even without leaving the thread, so anything held across an await goes through a
 /// <see cref="JSReference"/>; and nothing produced inside may escape except as plain .NET data.
 ///
+/// Every promise-shaped member has an async form only: a promise settles when the engine's loop
+/// turns, and a thread blocked inside a synchronous callback is exactly what stops it turning. The
+/// synchronous twins — <see cref="Run{T}(Func{T})"/> and friends — exist for work whose value is
+/// produced synchronously on the engine's thread, where they save a task's ceremony.
+///
 /// Disposal returns the capacity, nothing more. Work already posted to the engine runs to
 /// completion regardless, which is what lets a caller start something long-lived and release its
 /// claim by another route.
 /// </remarks>
-public sealed class NodeEngineLease : IAsyncDisposable
+public sealed class NodeEngineLease : IDisposable, IAsyncDisposable
 {
 
 	readonly NodeEnginePool pool;
@@ -79,6 +84,43 @@ public sealed class NodeEngineLease : IAsyncDisposable
 	}
 
 	/// <summary>
+	/// Runs synchronous work on the engine's JavaScript thread, blocking until it returns.
+	/// </summary>
+	/// <remarks>
+	/// For work whose value exists before the callback returns. A promise made inside still settles
+	/// afterward — the loop resumes the moment the callback is done — but its result is not
+	/// available here; work that must observe one belongs on <see cref="RunAsync{T}(Func{Task{T}})"/>.
+	/// </remarks>
+	/// <typeparam name="T"></typeparam>
+	/// <param name="work"></param>
+	public T Run<T>(Func<T> work)
+	{
+		ArgumentNullException.ThrowIfNull(work);
+
+		return engine.Runtime.Run(work);
+	}
+
+	/// <summary>
+	/// Runs synchronous work on the engine's JavaScript thread against a module's exports,
+	/// evaluating the module on this engine first if it has not been already.
+	/// </summary>
+	/// <remarks>
+	/// CommonJS evaluation is itself synchronous, so the whole call is a real synchronous dispatch —
+	/// only a source still being read from disk makes it wait on anything else.
+	/// </remarks>
+	/// <typeparam name="T"></typeparam>
+	/// <param name="module"></param>
+	/// <param name="work"></param>
+	public T Run<T>(NodeModuleSource module, Func<JSValue, T> work)
+	{
+		ArgumentNullException.ThrowIfNull(module);
+		ArgumentNullException.ThrowIfNull(work);
+
+		var exports = engine.Import(module);
+		return engine.Runtime.Run(() => work(exports.GetValue()));
+	}
+
+	/// <summary>
 	/// Evaluates a module on this engine ahead of use.
 	/// </summary>
 	/// <param name="module"></param>
@@ -88,6 +130,17 @@ public sealed class NodeEngineLease : IAsyncDisposable
 		ArgumentNullException.ThrowIfNull(module);
 
 		return engine.ImportAsync(module, cancellationToken);
+	}
+
+	/// <summary>
+	/// Evaluates a module on this engine ahead of use, blocking until its exports exist.
+	/// </summary>
+	/// <param name="module"></param>
+	public void Import(NodeModuleSource module)
+	{
+		ArgumentNullException.ThrowIfNull(module);
+
+		engine.Import(module);
 	}
 
 	/// <summary>
@@ -102,13 +155,18 @@ public sealed class NodeEngineLease : IAsyncDisposable
 	}
 
 	/// <inheritdoc />
-	public ValueTask DisposeAsync()
+	public void Dispose()
 	{
 		// Idempotent: disposal may arrive from more than one owner, and the pool must not gain
 		// capacity it never lost.
 		if (Interlocked.Exchange(ref released, 1) == 0)
 			pool.Release(engine);
+	}
 
+	/// <inheritdoc />
+	public ValueTask DisposeAsync()
+	{
+		Dispose();
 		return ValueTask.CompletedTask;
 	}
 

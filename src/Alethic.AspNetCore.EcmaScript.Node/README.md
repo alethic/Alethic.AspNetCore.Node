@@ -21,7 +21,7 @@ var app = builder.Build();
 app.UseStaticFiles();
 app.UseRouting();
 
-await app.MapRenderEngineAsync();      // from Alethic.AspNetCore.EcmaScript
+app.MapRenderEngine();                 // from Alethic.AspNetCore.EcmaScript
 
 await app.RunAsync();
 ```
