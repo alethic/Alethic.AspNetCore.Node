@@ -19,8 +19,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\..\src\Alethic.EcmaScript.Hosting.Http\Alethic.EcmaScript.Hosting.Http.csproj" />
-		<ProjectReference Include="..\..\src\Alethic.EcmaScript.Hosting.Node\Alethic.EcmaScript.Hosting.Node.csproj" />
+		<ProjectReference Include="..\..\src\Alethic.AspNetCore.EcmaScript.Node\Alethic.AspNetCore.EcmaScript.Node.csproj" />
 	</ItemGroup>
 
 </Project>

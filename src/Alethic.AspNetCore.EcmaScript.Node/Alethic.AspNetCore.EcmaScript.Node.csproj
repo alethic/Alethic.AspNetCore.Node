@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+		<Nullable>enable</Nullable>
+		<Description>Rendering engine backed by a Node runtime embedded in the process through node-api-dotnet, and the pooled Node engines it runs on.</Description>
+		<PackageTags>ASP.NET Core, JavaScript, Node, SSR</PackageTags>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+		<PackageReference Include="Microsoft.JavaScript.NodeApi" Version="0.9.26" />
+		<PackageReference Include="System.IO.Pipelines" Version="9.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Alethic.AspNetCore.EcmaScript\Alethic.AspNetCore.EcmaScript.csproj" />
+	</ItemGroup>
+
+</Project>

@@ -5,39 +5,42 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Alethic.EcmaScript.Hosting;
-using Alethic.EcmaScript.Hosting.Http;
+using Alethic.AspNetCore.EcmaScript;
+using Alethic.AspNetCore.EcmaScript.Node;
 
 using Microsoft.Extensions.DependencyInjection;
 
 using Xunit;
 
-namespace Alethic.EcmaScript.Hosting.Node.Tests;
+namespace Alethic.AspNetCore.EcmaScript.Node.Tests;
 
 /// <summary>
-/// Exercises the fetch contract over the embedded backend, through the Http layer's glue.
+/// Exercises the rendering engine through the abstraction: HTTP in, HTTP out, routes.
 /// </summary>
 [Collection("Node")]
-public class NodeHttpApplicationTests
+public class NodeRenderEngineTests
 {
 
 	/// <summary>
-	/// An application whose fetch echoes enough of the request to assert on.
+	//// An application whose fetch echoes enough of the request to assert on.
 	/// </summary>
 	const string EchoModule = """
-		let calls = 0;
 		module.exports.default = {
 			fetch(request) {
-				calls++;
 				const url = new URL(request.url);
 				const headers = {};
 				for (const [k, v] of request.headers.entries())
 					headers[k] = v;
 				return new Response(
-					JSON.stringify({ path: url.pathname, method: request.method, headers, calls }),
-					{ status: 200, headers: { 'content-type': 'application/json', 'x-echo': 'yes' } });
+					JSON.stringify({ path: url.pathname, method: request.method, headers }),
+					{ status: 200, headers: { 'content-type': 'application/json', 'x-app': 'yes' } });
 			},
-			routes() { return [{ pattern: '/parks/{parkRef}', renderMode: 'Server' }]; },
+			routes() {
+				return [
+					{ pattern: '/parks/{parkRef}', renderMode: 'Server', id: 'park' },
+					{ pattern: '/profile', renderMode: 'Client', id: 'profile' },
+				];
+			},
 		};
 		""";
 
@@ -59,33 +62,33 @@ public class NodeHttpApplicationTests
 		""";
 
 	/// <summary>
-	/// Builds an application over a fresh pool.
+	/// Builds a provider with the two registrations: the pool, and a rendering engine on it.
 	/// </summary>
 	/// <param name="module"></param>
-	static (ServiceProvider Services, IJavaScriptHttpApplication Application) Build(string module)
+	/// <param name="configurePool"></param>
+	static (ServiceProvider Services, IRenderEngine Engine) Build(string module, Action<NodeEnginePoolOptions>? configurePool = null)
 	{
 		var services = new ServiceCollection();
-		services.AddJavaScriptEnginePool().UseEmbeddedNode();
+		services.AddNodeEnginePool(configurePool);
+		services.AddNodeRenderEngine(o => o.Module = NodeModuleSource.FromText("app.cjs", module));
 		var provider = services.BuildServiceProvider();
-
-		var pool = provider.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		return (provider, pool.GetHttpApplication(JavaScriptModuleSource.FromText("app.cjs", module)));
+		return (provider, provider.GetRequiredService<IRenderEngine>());
 	}
 
 	[Fact]
-	public async Task Send_dispatches_to_fetch_and_returns_response()
+	public async Task Send_renders_a_request()
 	{
-		var (services, app) = Build(EchoModule);
+		var (services, engine) = Build(EchoModule);
 		await using var _ = services;
 
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/parks/enchanted-rock");
 		request.Headers.Add("x-probe", "value");
 
-		using var response = await app.SendAsync(request, CancellationToken.None);
+		using var response = await engine.SendAsync(request);
 		var text = await response.Content.ReadAsStringAsync();
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		Assert.Equal("yes", response.Headers.GetValues("x-echo").Single());
+		Assert.Equal("yes", response.Headers.GetValues("x-app").Single());
 		Assert.Contains("\"path\":\"/parks/enchanted-rock\"", text);
 		Assert.Contains("\"method\":\"GET\"", text);
 		Assert.Contains("\"x-probe\":\"value\"", text);
@@ -103,7 +106,7 @@ public class NodeHttpApplicationTests
 			};
 			""";
 
-		var (services, app) = Build(BodyModule);
+		var (services, engine) = Build(BodyModule);
 		await using var _ = services;
 
 		using var request = new HttpRequestMessage(HttpMethod.Post, "https://unit.test/")
@@ -111,41 +114,44 @@ public class NodeHttpApplicationTests
 			Content = new StringContent("park data"),
 		};
 
-		using var response = await app.SendAsync(request, CancellationToken.None);
+		using var response = await engine.SendAsync(request);
 		Assert.Equal("got:park data", await response.Content.ReadAsStringAsync());
 	}
 
 	[Fact]
-	public async Task Routes_manifest_comes_back_as_json()
+	public async Task Routes_come_back_typed()
 	{
-		var (services, app) = Build(EchoModule);
+		var (services, engine) = Build(EchoModule);
 		await using var _ = services;
 
-		var json = await app.GetRoutesJsonAsync("routes", CancellationToken.None);
+		var routes = await engine.GetRoutesAsync();
 
-		Assert.NotNull(json);
-		Assert.Contains("/parks/{parkRef}", json);
+		Assert.NotNull(routes);
+		Assert.Equal(2, routes.Count);
+		Assert.Equal("/parks/{parkRef}", routes[0].Pattern);
+		Assert.Equal(RenderMode.Server, routes[0].RenderMode);
+		Assert.Equal(RenderMode.Client, routes[1].RenderMode);
 	}
 
 	[Fact]
 	public async Task Missing_manifest_is_null_not_an_error()
 	{
-		var (services, app) = Build(SlowModule);
+		var (services, engine) = Build(SlowModule);
 		await using var _ = services;
 
-		Assert.Null(await app.GetRoutesJsonAsync("routes", CancellationToken.None));
+		Assert.Null(await engine.GetRoutesAsync());
 	}
 
 	[Fact]
 	public async Task Cancellation_aborts_the_render()
 	{
-		var (services, app) = Build(SlowModule);
+		var (services, engine) = Build(SlowModule);
 		await using var _ = services;
 
 		using var cts = new CancellationTokenSource();
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/?delay=10000");
 
-		var send = app.SendAsync(request, cts.Token);
+		var send = engine.SendAsync(request, cts.Token);
 		cts.CancelAfter(100);
 
 		// The failure mode this guards against is the render running its full ten seconds with only
@@ -156,32 +162,45 @@ public class NodeHttpApplicationTests
 	[Fact]
 	public async Task Missing_default_export_fails_loudly()
 	{
-		var (services, app) = Build("module.exports.notDefault = 1;");
+		var (services, engine) = Build("module.exports.notDefault = 1;");
 		await using var _ = services;
 
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
 
-		var e = await Assert.ThrowsAnyAsync<Exception>(() => app.SendAsync(request, CancellationToken.None));
+		var e = await Assert.ThrowsAnyAsync<Exception>(() => engine.SendAsync(request));
 		Assert.Contains("fetch", e.Message);
 	}
 
 	[Fact]
-	public async Task Concurrent_requests_overlap_on_one_engine()
+	public async Task Concurrent_renders_overlap_on_one_engine()
 	{
-		var (services, app) = Build(SlowModule);
+		var (services, engine) = Build(SlowModule);
 		await using var _ = services;
 
 		async Task One()
 		{
 			using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/?delay=100");
-			using var response = await app.SendAsync(request, CancellationToken.None);
+			using var response = await engine.SendAsync(request);
 			await response.Content.ReadAsStringAsync();
 		}
 
 		// Eight requests, each pausing 100ms inside the module. Serialized they take 800ms; the
 		// deadline holds only if the engine overlaps them.
-		var all = Task.WhenAll(Enumerable.Range(0, 8).Select(_ => One()));
-		await all.WaitAsync(TimeSpan.FromMilliseconds(2500));
+		await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => One())).WaitAsync(TimeSpan.FromMilliseconds(2500));
+	}
+
+	[Fact]
+	public async Task Prepare_fails_on_an_unreadable_module()
+	{
+		var services = new ServiceCollection();
+		services.AddNodeEnginePool();
+		services.AddNodeRenderEngine(o => o.Module = NodeModuleSource.FromFile("Z:/does/not/exist.cjs"));
+		await using var provider = services.BuildServiceProvider();
+		var engine = provider.GetRequiredService<IRenderEngine>();
+
+		// A broken module must fail preparation — and with it the deployment — rather than stand up
+		// an engine that quietly serves nothing.
+		await Assert.ThrowsAnyAsync<Exception>(() => engine.PrepareAsync());
 	}
 
 }

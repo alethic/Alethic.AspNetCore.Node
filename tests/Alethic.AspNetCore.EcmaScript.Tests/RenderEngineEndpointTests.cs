@@ -1,12 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Threading;
 using System.Threading.Tasks;
 
 using Alethic.AspNetCore.EcmaScript;
-using Alethic.EcmaScript.Hosting;
+using Alethic.AspNetCore.EcmaScript.Node;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -19,15 +19,15 @@ using Xunit;
 namespace Alethic.AspNetCore.EcmaScript.Tests;
 
 /// <summary>
-/// Drives the endpoint layer through a real server, one HTTP request at a time.
+/// Drives the endpoint layer through a real server, against the Node rendering engine.
 /// </summary>
 [Collection("Node")]
-public class JavaScriptEndpointTests
+public class RenderEngineEndpointTests
 {
 
 	/// <summary>
-	/// An application with a manifest: one server route, one client route, and a fetch that reports
-	/// what it saw so tests can assert on routing decisions from the outside.
+	/// An application with a manifest: server routes, a client route, and a fetch that reports what
+	/// it saw so tests can assert on routing decisions from the outside.
 	/// </summary>
 	const string AppModule = """
 		module.exports.default = {
@@ -67,11 +67,12 @@ public class JavaScriptEndpointTests
 	/// </summary>
 	/// <param name="module"></param>
 	/// <param name="configure"></param>
-	static async Task<(WebApplication App, HttpClient Client, System.Collections.Generic.IReadOnlyList<JavaScriptRoute> Routes)> StartAsync(string module, Action<JavaScriptApplicationOptions>? configure = null)
+	static async Task<(WebApplication App, HttpClient Client, IReadOnlyList<RenderRoute> Routes)> StartAsync(string module, Action<MapRenderEngineOptions>? configure = null)
 	{
 		var builder = WebApplication.CreateBuilder();
 		builder.WebHost.UseTestServer();
-		builder.Services.AddJavaScriptEnginePool().UseEmbeddedNode();
+		builder.Services.AddNodeEnginePool();
+		builder.Services.AddNodeRenderEngine(o => o.Module = NodeModuleSource.FromText("app.cjs", module));
 
 		var app = builder.Build();
 
@@ -79,9 +80,9 @@ public class JavaScriptEndpointTests
 		// on the engine.
 		app.MapGet("/profile", () => Results.Text("<div id=\"app\"></div>", "text/html"));
 
-		var options = new JavaScriptApplicationOptions() { Module = JavaScriptModuleSource.FromText("app.cjs", module) };
+		var options = new MapRenderEngineOptions();
 		configure?.Invoke(options);
-		var routes = await app.MapJavaScriptApplicationAsync(options);
+		var routes = await app.MapRenderEngineAsync(options);
 
 		await app.StartAsync();
 		return (app, app.GetTestClient(), routes);
@@ -158,7 +159,7 @@ public class JavaScriptEndpointTests
 	[Fact]
 	public async Task ConfigureEndpoint_sees_each_route_and_the_fallback()
 	{
-		var seen = new System.Collections.Generic.List<string?>();
+		var seen = new List<string?>();
 
 		var (app, _, _) = await StartAsync(AppModule, o => o.ConfigureEndpoint = (route, _) => seen.Add(route?.Id));
 		await using var _1 = app;

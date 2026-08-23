@@ -1,14 +1,17 @@
-using Alethic.AspNetCore.EcmaScript;
-using Alethic.EcmaScript.Hosting;
+using Alethic.AspNetCore.EcmaScript.Node;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddJavaScriptEnginePool(o =>
+// The two registrations: the libnode pool, and the rendering engine on it.
+builder.Services.AddNodeEnginePool(o =>
 {
 	o.EngineCount = 2;
 	o.MaxConcurrencyPerEngine = 4;
-})
-.UseEmbeddedNode();
+});
+builder.Services.AddNodeRenderEngine(o =>
+{
+	o.Module = NodeModuleSource.FromFile(Path.Combine(builder.Environment.ContentRootPath, "..", "Client", "dist", "server", "app.cjs"));
+});
 
 var app = builder.Build();
 
@@ -18,18 +21,8 @@ var app = builder.Build();
 app.UseStaticFiles();
 app.UseRouting();
 
-// Warms the pool, asks the application for its routes, and maps them. Prerender routes get a tag a
-// real deployment would hang an output-cache policy on; here it just shows the seam.
-var routes = await app.MapJavaScriptApplicationAsync(new JavaScriptApplicationOptions()
-{
-	Module = JavaScriptModuleSource.FromFile(Path.Combine(app.Environment.ContentRootPath, "..", "Client", "dist", "server", "app.cjs")),
-	ConfigureEndpoint = (route, endpoint) =>
-	{
-		if (route?.RenderMode == RenderMode.Prerender)
-			endpoint.WithDisplayName($"prerenderable:{route.Id}");
-	},
-});
-
+// Prepares the engine, asks the application for its routes, and maps them.
+var routes = await app.MapRenderEngineAsync();
 app.Logger.LogInformation("Mounted {Count} routes from the application manifest.", routes.Count);
 
 await app.RunAsync();

@@ -2,7 +2,7 @@ using System;
 
 using Microsoft.JavaScript.NodeApi.Runtime;
 
-namespace Alethic.EcmaScript.Hosting.Node;
+namespace Alethic.AspNetCore.EcmaScript.Node;
 
 /// <summary>
 /// Owns the one embedding platform a process is allowed.

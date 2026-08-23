@@ -25,7 +25,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\src\Alethic.AspNetCore.EcmaScript\Alethic.AspNetCore.EcmaScript.csproj" />
-		<ProjectReference Include="..\..\src\Alethic.EcmaScript.Hosting.Node\Alethic.EcmaScript.Hosting.Node.csproj" />
+		<ProjectReference Include="..\..\src\Alethic.AspNetCore.EcmaScript.Node\Alethic.AspNetCore.EcmaScript.Node.csproj" />
 	</ItemGroup>
 
 </Project>

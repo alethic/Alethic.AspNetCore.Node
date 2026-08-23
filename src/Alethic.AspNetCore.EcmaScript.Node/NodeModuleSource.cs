@@ -3,7 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Alethic.EcmaScript.Hosting;
+namespace Alethic.AspNetCore.EcmaScript.Node;
 
 /// <summary>
 /// Identifies a JavaScript module and provides its source text.
@@ -11,24 +11,24 @@ namespace Alethic.EcmaScript.Hosting;
 /// <remarks>
 /// Instances are values: two sources with the same <see cref="Key"/> refer to the same module, which
 /// is what lets an engine reuse what it has already evaluated. Modules must be self-contained
-/// CommonJS bundles. An embedded Node runtime has no dynamic import callback registered, so neither
-/// an ES module nor an <c>import()</c> inside the bundle can resolve.
+/// CommonJS bundles. The embedded runtime has no dynamic import callback registered, so neither an
+/// ES module nor an <c>import()</c> inside the bundle can resolve.
 /// </remarks>
-public abstract class JavaScriptModuleSource : IEquatable<JavaScriptModuleSource>
+public abstract class NodeModuleSource : IEquatable<NodeModuleSource>
 {
 
 	/// <summary>
 	/// Creates a source that reads the module from a file on disk.
 	/// </summary>
 	/// <param name="path"></param>
-	public static JavaScriptModuleSource FromFile(string path) => new FileModuleSource(path);
+	public static NodeModuleSource FromFile(string path) => new FileSource(path);
 
 	/// <summary>
 	/// Creates a source over module text already in memory.
 	/// </summary>
 	/// <param name="name">Name reported in stack traces.</param>
 	/// <param name="text"></param>
-	public static JavaScriptModuleSource FromText(string name, string text) => new TextModuleSource(name, text);
+	public static NodeModuleSource FromText(string name, string text) => new TextSource(name, text);
 
 	/// <summary>
 	/// Stable identity of this module. Sources comparing equal are evaluated once per engine.
@@ -47,10 +47,10 @@ public abstract class JavaScriptModuleSource : IEquatable<JavaScriptModuleSource
 	public abstract ValueTask<string> ReadAsync(CancellationToken cancellationToken);
 
 	/// <inheritdoc />
-	public bool Equals(JavaScriptModuleSource? other) => other is not null && Key == other.Key;
+	public bool Equals(NodeModuleSource? other) => other is not null && Key == other.Key;
 
 	/// <inheritdoc />
-	public override bool Equals(object? obj) => Equals(obj as JavaScriptModuleSource);
+	public override bool Equals(object? obj) => Equals(obj as NodeModuleSource);
 
 	/// <inheritdoc />
 	public override int GetHashCode() => Key.GetHashCode();
@@ -58,12 +58,12 @@ public abstract class JavaScriptModuleSource : IEquatable<JavaScriptModuleSource
 	/// <inheritdoc />
 	public override string ToString() => Name;
 
-	sealed class FileModuleSource : JavaScriptModuleSource
+	sealed class FileSource : NodeModuleSource
 	{
 
 		readonly string path;
 
-		public FileModuleSource(string path)
+		public FileSource(string path)
 		{
 			this.path = Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path)));
 		}
@@ -72,20 +72,18 @@ public abstract class JavaScriptModuleSource : IEquatable<JavaScriptModuleSource
 
 		public override string Name => Path.GetFileName(path);
 
-		public override async ValueTask<string> ReadAsync(CancellationToken cancellationToken)
-		{
-			return await File.ReadAllTextAsync(path, cancellationToken);
-		}
+		public override async ValueTask<string> ReadAsync(CancellationToken cancellationToken) =>
+			await File.ReadAllTextAsync(path, cancellationToken);
 
 	}
 
-	sealed class TextModuleSource : JavaScriptModuleSource
+	sealed class TextSource : NodeModuleSource
 	{
 
 		readonly string name;
 		readonly string text;
 
-		public TextModuleSource(string name, string text)
+		public TextSource(string name, string text)
 		{
 			this.name = name ?? throw new ArgumentNullException(nameof(name));
 			this.text = text ?? throw new ArgumentNullException(nameof(text));

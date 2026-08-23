@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace Alethic.EcmaScript.Hosting.Node;
+namespace Alethic.AspNetCore.EcmaScript.Node;
 
 /// <summary>
 /// Finds the native Node library to embed.

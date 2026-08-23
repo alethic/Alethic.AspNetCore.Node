@@ -1,11 +1,11 @@
 using System;
 
-namespace Alethic.EcmaScript.Hosting;
+namespace Alethic.AspNetCore.EcmaScript.Node;
 
 /// <summary>
-/// Configures one named pool of engines.
+/// Configures one pool of embedded Node engines.
 /// </summary>
-public class JavaScriptEnginePoolOptions
+public class NodeEnginePoolOptions
 {
 
 	int engineCount = 1;
@@ -27,11 +27,11 @@ public class JavaScriptEnginePoolOptions
 	}
 
 	/// <summary>
-	/// Number of calls that may be in flight on one engine at a time. Defaults to four.
+	/// Number of leases that may be held against one engine at a time. Defaults to four.
 	/// </summary>
 	/// <remarks>
-	/// This is backpressure, not mutual exclusion. A module that awaits yields its engine, so holding
-	/// an engine to a single call wastes most of its capacity; the gain flattens once concurrency
+	/// This is backpressure, not mutual exclusion. An engine overlaps many concurrent calls, since
+	/// everything awaited inside it yields to its event loop; the gain flattens once concurrency
 	/// covers the time spent waiting, and leaving it unbounded merely lets a slow dependency pile up
 	/// work until memory runs out.
 	/// </remarks>
@@ -42,13 +42,14 @@ public class JavaScriptEnginePoolOptions
 	}
 
 	/// <summary>
-	/// How long a call may wait for capacity before it is abandoned. Defaults to ten seconds.
+	/// How long an acquisition may wait for capacity before it is abandoned. Defaults to ten seconds.
 	/// </summary>
 	public TimeSpan AcquireTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
 	/// <summary>
-	/// Path to the native runtime library, for a backend that needs one and cannot find it itself.
+	/// Path to the native Node library, when it cannot be located beside the application or under its
+	/// runtime identifier.
 	/// </summary>
-	public string? RuntimePath { get; set; }
+	public string? LibNodePath { get; set; }
 
 }

@@ -3,15 +3,13 @@ using System.Text.Json.Serialization;
 namespace Alethic.AspNetCore.EcmaScript;
 
 /// <summary>
-/// One entry of a JavaScript application's route manifest.
+/// One entry of a rendering engine's route manifest.
 /// </summary>
 /// <remarks>
-/// The manifest comes from the application's own router, so nothing is declared twice; the entry
-/// module translates its framework's pattern syntax into ASP.NET's, being the one place that knows
-/// which framework it is. A pattern the entry cannot express is null, and such a route is simply
-/// served by the application's fallback rather than by a mapped endpoint.
+/// A pattern the application could not express in ASP.NET template syntax is null; such a route is
+/// served by the fallback endpoint rather than a mapped one, losing only its per-route policy.
 /// </remarks>
-public sealed record JavaScriptRoute
+public sealed record RenderRoute
 {
 
 	/// <summary>
