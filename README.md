@@ -16,7 +16,9 @@ pools appears in it.
 
 **A rendering engine implements it.** `NodeRenderEngine` speaks the Web-standard fetch contract —
 `(Request) => Promise<Response>`, which every current SSR framework exposes or composes with — to
-the application's server bundle. The adapter glue, how requests travel, the module: all private.
+the application's server bundle. The `Request` is built and the `Response` taken apart directly on
+the engine's thread, where those types live; nothing is serialized and the module evaluates
+untouched.
 
 **The libnode pool is a concrete facility underneath.** `NodeEnginePool` is openly libnode, not an
 abstraction: registered in DI, pooled for CPU parallelism, and usable for any JavaScript work — a
