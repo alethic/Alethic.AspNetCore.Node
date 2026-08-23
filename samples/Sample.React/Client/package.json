@@ -1,0 +1,18 @@
+{
+  "name": "sample-react-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "esbuild src/entry-server.jsx --bundle --outfile=dist/server/app.cjs --platform=node --format=cjs --jsx=automatic --target=node20 --minify",
+    "build:client": "esbuild src/entry-client.jsx --bundle --outfile=dist/client/app.js --platform=browser --format=iife --jsx=automatic --minify"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

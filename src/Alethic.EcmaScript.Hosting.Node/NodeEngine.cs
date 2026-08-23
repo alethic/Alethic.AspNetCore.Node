@@ -107,15 +107,10 @@ sealed class NodeEngine : IJavaScriptEngine
 
 		var exports = runtime.Run(() =>
 		{
+			// The whole exports object, unjudged: which exports a module must carry is its consumers'
+			// contract, not this layer's.
 			var value = JSValue.Global["__alethicLoad"].Call(JSValue.Undefined, text, source.Name);
-
-			// A module whose default export is absent cannot be dispatched to, and saying so here
-			// beats a null reference on the first request.
-			var module = value["default"];
-			if (module.IsUndefined() || module.IsNull())
-				throw new InvalidOperationException($"JavaScript module '{source.Name}' has no default export.");
-
-			return new JSReference(module, isWeak: false);
+			return new JSReference(value, isWeak: false);
 		});
 
 		return new NodeModuleInstance(this, source, exports, logger);

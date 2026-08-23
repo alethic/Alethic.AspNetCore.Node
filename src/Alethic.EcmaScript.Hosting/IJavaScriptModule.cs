@@ -1,4 +1,4 @@
-using System.Net.Http;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,28 +14,35 @@ namespace Alethic.EcmaScript.Hosting;
 /// absent. A module that caches across calls appears to work perfectly against one engine and turns
 /// inconsistent the day a second appears.
 /// </remarks>
-public interface IJavaScriptApplication
+public interface IJavaScriptModule
 {
 
 	/// <summary>
-	/// The module this application dispatches to.
+	/// The source this module dispatches to.
 	/// </summary>
 	JavaScriptModuleSource Source { get; }
-
-	/// <summary>
-	/// Dispatches a request to the module's default <c>fetch</c> export.
-	/// </summary>
-	/// <param name="request"></param>
-	/// <param name="cancellationToken">Aborts the render itself, not merely the wait for it.</param>
-	Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken);
 
 	/// <summary>
 	/// Invokes an exported function and converts its result from JSON.
 	/// </summary>
 	/// <typeparam name="T"></typeparam>
-	/// <param name="export"></param>
+	/// <param name="export">Dotted path through the module's exports.</param>
 	/// <param name="arguments"></param>
 	/// <param name="cancellationToken"></param>
 	Task<T?> InvokeAsync<T>(string export, object?[] arguments, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// Invokes an exported function whose result is a stream of bytes with a structured prologue.
+	/// </summary>
+	/// <remarks>
+	/// The call's engine capacity stays charged until the returned response is disposed, not merely
+	/// until it is returned: the body is still being produced after this method completes, and
+	/// releasing earlier would let concurrent streams pile onto an engine without bound.
+	/// </remarks>
+	/// <param name="export">Dotted path through the module's exports.</param>
+	/// <param name="arguments"></param>
+	/// <param name="payload"></param>
+	/// <param name="cancellationToken"></param>
+	Task<JavaScriptStreamResponse> InvokeStreamAsync(string export, object?[] arguments, ReadOnlyMemory<byte>? payload, CancellationToken cancellationToken);
 
 }

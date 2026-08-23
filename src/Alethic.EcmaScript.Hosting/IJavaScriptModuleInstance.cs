@@ -1,4 +1,4 @@
-using System.Net.Http;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,29 +21,37 @@ public interface IJavaScriptModuleInstance
 	JavaScriptModuleSource Source { get; }
 
 	/// <summary>
-	/// Dispatches a request to the module's default <c>fetch</c> export.
-	/// </summary>
-	/// <remarks>
-	/// The response streams. It is returned as soon as the module answers with one, and its content
-	/// continues to fill afterwards, so a caller wanting the whole body must read it to the end. Note
-	/// that a failure arising after the first byte cannot alter the status line, since by then it has
-	/// already been committed.
-	/// </remarks>
-	/// <param name="request"></param>
-	/// <param name="cancellationToken">Aborts the render itself, not merely the wait for it.</param>
-	Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken);
-
-	/// <summary>
 	/// Invokes an exported function and converts its result from JSON.
 	/// </summary>
 	/// <remarks>
-	/// The escape hatch for work that is not a request, such as enumerating routes or gathering the
-	/// data behind a sitemap. Arguments and results cross the boundary as JSON.
+	/// The export is named by a dotted path through the module's exports, <c>default.routes</c> for
+	/// example, and is called on the object that holds it so its <c>this</c> is what the module
+	/// expects. Arguments and results cross the boundary as JSON.
 	/// </remarks>
 	/// <typeparam name="T"></typeparam>
 	/// <param name="export"></param>
 	/// <param name="arguments"></param>
 	/// <param name="cancellationToken"></param>
 	Task<T?> InvokeAsync<T>(string export, object?[] arguments, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// Invokes an exported function whose result is a stream of bytes with a structured prologue.
+	/// </summary>
+	/// <remarks>
+	/// The export is called as <c>export(...arguments, payload, signal)</c>: the JSON arguments
+	/// spread first, then the payload bytes as a <c>Uint8Array</c> or null, then an
+	/// <c>AbortSignal</c> wired to the cancellation token. It returns, or resolves to, an object of
+	/// the form <c>{ head, body }</c> — <c>head</c> any JSON-serializable value, <c>body</c> a
+	/// <c>ReadableStream</c> of bytes or absent.
+	///
+	/// The result is returned once the head is known, and the body continues to fill as the module
+	/// produces it. Cancellation reaches the module through the signal, aborting the work itself
+	/// rather than merely the wait for it.
+	/// </remarks>
+	/// <param name="export"></param>
+	/// <param name="arguments"></param>
+	/// <param name="payload"></param>
+	/// <param name="cancellationToken"></param>
+	Task<JavaScriptStreamResponse> InvokeStreamAsync(string export, object?[] arguments, ReadOnlyMemory<byte>? payload, CancellationToken cancellationToken);
 
 }

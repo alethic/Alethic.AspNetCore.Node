@@ -28,7 +28,7 @@ public interface IJavaScriptEnginePool : IAsyncDisposable
 	/// to serve it, and reuses it thereafter. <see cref="WarmAsync"/> brings that cost forward.
 	/// </remarks>
 	/// <param name="source"></param>
-	IJavaScriptApplication GetApplication(JavaScriptModuleSource source);
+	IJavaScriptModule GetModule(JavaScriptModuleSource source);
 
 	/// <summary>
 	/// Ensures every engine in the pool has evaluated the given module.

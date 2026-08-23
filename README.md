@@ -15,27 +15,41 @@ the final state of that lineage is preserved on the `wip/spa-restructure-2025-02
 
 | Project | Contents |
 |---|---|
-| `Alethic.EcmaScript.Hosting` | Engines, pools, modules, options. No ASP.NET dependency; usable from a console tool. |
-| `Alethic.EcmaScript.Hosting.Node` | The embedded-Node backend. |
-
-An ASP.NET Core integration layer (endpoint mapping, route manifests, warmup) sits above these and
-is under construction.
+| `Alethic.EcmaScript.Hosting` | Engines, pools, modules, options. Knows nothing of HTTP or the web: its two primitives are a JSON invocation and a general streaming invocation (structured head + byte stream + cancellation). |
+| `Alethic.EcmaScript.Hosting.Node` | The embedded-Node backend. Implements only the general contract. |
+| `Alethic.EcmaScript.Hosting.Http` | The Web-standard fetch contract, built on the streaming primitive. The `Request`/`Response` handling lives in a JS glue function appended to the module, since those are the runtime's types. `System.Net.Http` only. |
+| `Alethic.AspNetCore.EcmaScript` | Endpoint mapping: `MapJavaScriptApplicationAsync` warms the pool, reads the application's own route manifest, and maps an endpoint per route plus a fallback. |
 
 ## Shape
 
 ```csharp
-services.AddJavaScriptEnginePool(o =>
+builder.Services.AddJavaScriptEnginePool(o =>
 {
     o.EngineCount = 4;                 // must track the CPU limit; see remarks on the option
     o.MaxConcurrencyPerEngine = 4;     // backpressure, not mutual exclusion
 })
 .UseEmbeddedNode();
 
-var pool = provider.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-var app = pool.GetApplication(JavaScriptModuleSource.FromFile("ssr/server.cjs"));
+var app = builder.Build();
+app.UseStaticFiles();
+app.UseRouting();                      // explicit, or the fallback outruns static files
 
-using var response = await app.SendAsync(request, cancellationToken);   // streams
-var routes = await app.InvokeAsync<List<RouteEntry>>("routes", [], cancellationToken);
+await app.MapJavaScriptApplicationAsync(new JavaScriptApplicationOptions()
+{
+    Module = JavaScriptModuleSource.FromFile("ssr/server.cjs"),
+});
+
+await app.RunAsync();
+```
+
+The pool is equally usable with no web anywhere in sight — run any JS, stream any bytes:
+
+```csharp
+var pool = provider.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
+var module = pool.GetModule(JavaScriptModuleSource.FromFile("tool.cjs"));
+
+var result = await module.InvokeAsync<MyResult>("transform", [input], ct);
+await using var stream = await module.InvokeStreamAsync("produce", [args], payload, ct);
 ```
 
 The module is a self-contained CommonJS bundle whose default export carries `fetch(request)` and
@@ -60,3 +74,7 @@ export default {
 - **Cancellation aborts the render**, through `AbortSignal` on the request, not merely the wait.
 - Reference the RID-specific `Microsoft.JavaScript.LibNode.<rid>` package. The umbrella package
   depends on every platform at once and lands ~640 MB of native libraries in the output.
+
+A complete React 19 sample — server rendering with suspended data resolved into the markup, client
+hydration over it, and a route manifest driving the endpoint table — lives under
+`samples/Sample.React`. Build the client with `npm run build` there, then `dotnet run` the server.

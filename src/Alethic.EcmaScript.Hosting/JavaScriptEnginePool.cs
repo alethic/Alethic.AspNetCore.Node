@@ -48,12 +48,12 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 	public string Name => name;
 
 	/// <inheritdoc />
-	public IJavaScriptApplication GetApplication(JavaScriptModuleSource source)
+	public IJavaScriptModule GetModule(JavaScriptModuleSource source)
 	{
 		ArgumentNullException.ThrowIfNull(source);
 		ObjectDisposedException.ThrowIf(disposed, this);
 
-		return new JavaScriptApplication(this, source);
+		return new JavaScriptPoolModule(this, source);
 	}
 
 	/// <inheritdoc />

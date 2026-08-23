@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Alethic.EcmaScript.Hosting;
+using Alethic.EcmaScript.Hosting.Http;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -91,7 +92,7 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices();
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
 
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/parks/enchanted-rock");
 		request.Headers.Add("x-probe", "value");
@@ -111,11 +112,11 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices();
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
 
-		Assert.Equal(5, await app.InvokeAsync<int>("add", [2, 3], CancellationToken.None));
-		Assert.Equal(7, await app.InvokeAsync<int>("addLater", [3, 4], CancellationToken.None));
-		Assert.Equal(0, await app.InvokeAsync<int>("nothing", [], CancellationToken.None));
+		Assert.Equal(5, await app.Module.InvokeAsync<int>("default.add", [2, 3], CancellationToken.None));
+		Assert.Equal(7, await app.Module.InvokeAsync<int>("default.addLater", [3, 4], CancellationToken.None));
+		Assert.Equal(0, await app.Module.InvokeAsync<int>("default.nothing", [], CancellationToken.None));
 	}
 
 	[Fact]
@@ -123,9 +124,9 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices();
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
 
-		var routes = await app.InvokeAsync<List<RouteEntry>>("routes", [], CancellationToken.None);
+		var routes = await app.Module.InvokeAsync<List<RouteEntry>>("default.routes", [], CancellationToken.None);
 
 		Assert.NotNull(routes);
 		var route = Assert.Single(routes);
@@ -138,7 +139,7 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices(o => o.MaxConcurrencyPerEngine = 8);
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("slow.cjs", SlowModule));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("slow.cjs", SlowModule));
 
 		async Task<string> One()
 		{
@@ -161,7 +162,7 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices();
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("slow.cjs", SlowModule));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("slow.cjs", SlowModule));
 
 		using var cts = new CancellationTokenSource();
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/?delay=10000");
@@ -179,7 +180,7 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices();
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("echo.cjs", EchoModule));
 
 		async Task<string> One()
 		{
@@ -202,12 +203,14 @@ public class NodeEnginePoolTests
 	{
 		await using var services = BuildServices();
 		var pool = services.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
-		var app = pool.GetApplication(JavaScriptModuleSource.FromText("bare.cjs", "module.exports.notDefault = 1;"));
+		var app = pool.GetHttpApplication(JavaScriptModuleSource.FromText("bare.cjs", "module.exports.notDefault = 1;"));
 
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
 
+		// The general layer no longer judges a module's exports; the fetch adapter discovers the
+		// absence when it goes looking, so the failure names the adapter's export.
 		var e = await Assert.ThrowsAnyAsync<Exception>(() => app.SendAsync(request, CancellationToken.None));
-		Assert.Contains("default export", e.Message);
+		Assert.Contains("fetch", e.Message);
 	}
 
 	/// <summary>
