@@ -5,24 +5,20 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Alethic.AspNetCore.EcmaScript;
-using Alethic.AspNetCore.EcmaScript.Node;
-
 using Microsoft.Extensions.DependencyInjection;
-
-using Xunit;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Alethic.AspNetCore.EcmaScript.Node.Tests;
 
 /// <summary>
 /// Exercises the rendering engine through the abstraction: HTTP in, HTTP out, routes.
 /// </summary>
-[Collection("Node")]
+[TestClass]
 public class NodeRenderEngineTests
 {
 
 	/// <summary>
-	//// An application whose fetch echoes enough of the request to assert on.
+	/// An application whose fetch echoes enough of the request to assert on.
 	/// </summary>
 	const string EchoModule = """
 		module.exports.default = {
@@ -75,7 +71,7 @@ public class NodeRenderEngineTests
 		return (provider, provider.GetRequiredService<IRenderEngine>());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Send_renders_a_request()
 	{
 		var (services, engine) = Build(EchoModule);
@@ -87,14 +83,14 @@ public class NodeRenderEngineTests
 		using var response = await engine.SendAsync(request);
 		var text = await response.Content.ReadAsStringAsync();
 
-		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		Assert.Equal("yes", response.Headers.GetValues("x-app").Single());
-		Assert.Contains("\"path\":\"/parks/enchanted-rock\"", text);
-		Assert.Contains("\"method\":\"GET\"", text);
-		Assert.Contains("\"x-probe\":\"value\"", text);
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		Assert.AreEqual("yes", response.Headers.GetValues("x-app").Single());
+		StringAssert.Contains(text, "\"path\":\"/parks/enchanted-rock\"");
+		StringAssert.Contains(text, "\"method\":\"GET\"");
+		StringAssert.Contains(text, "\"x-probe\":\"value\"");
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Request_bodies_reach_the_application()
 	{
 		const string BodyModule = """
@@ -115,10 +111,10 @@ public class NodeRenderEngineTests
 		};
 
 		using var response = await engine.SendAsync(request);
-		Assert.Equal("got:park data", await response.Content.ReadAsStringAsync());
+		Assert.AreEqual("got:park data", await response.Content.ReadAsStringAsync());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Routes_come_back_typed()
 	{
 		var (services, engine) = Build(EchoModule);
@@ -126,23 +122,23 @@ public class NodeRenderEngineTests
 
 		var routes = await engine.GetRoutesAsync();
 
-		Assert.NotNull(routes);
-		Assert.Equal(2, routes.Count);
-		Assert.Equal("/parks/:parkRef", routes[0].Pattern);
-		Assert.Equal(RenderMode.Server, routes[0].RenderMode);
-		Assert.Equal(RenderMode.Client, routes[1].RenderMode);
+		Assert.IsNotNull(routes);
+		Assert.AreEqual(2, routes.Count);
+		Assert.AreEqual("/parks/:parkRef", routes[0].Pattern);
+		Assert.AreEqual(RenderMode.Server, routes[0].RenderMode);
+		Assert.AreEqual(RenderMode.Client, routes[1].RenderMode);
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Missing_manifest_is_null_not_an_error()
 	{
 		var (services, engine) = Build(SlowModule);
 		await using var _ = services;
 
-		Assert.Null(await engine.GetRoutesAsync());
+		Assert.IsNull(await engine.GetRoutesAsync());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Cancellation_aborts_the_render()
 	{
 		var (services, engine) = Build(SlowModule);
@@ -156,10 +152,10 @@ public class NodeRenderEngineTests
 
 		// The failure mode this guards against is the render running its full ten seconds with only
 		// the caller's wait abandoned; the deadline is what distinguishes them.
-		await Assert.ThrowsAnyAsync<Exception>(() => send).WaitAsync(TimeSpan.FromSeconds(5));
+		await Assert.ThrowsAsync<Exception>(() => send).WaitAsync(TimeSpan.FromSeconds(5));
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Missing_default_export_fails_loudly()
 	{
 		var (services, engine) = Build("module.exports.notDefault = 1;");
@@ -167,11 +163,11 @@ public class NodeRenderEngineTests
 
 		using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
 
-		var e = await Assert.ThrowsAnyAsync<Exception>(() => engine.SendAsync(request));
-		Assert.Contains("fetch", e.Message);
+		var e = await Assert.ThrowsAsync<Exception>(() => engine.SendAsync(request));
+		StringAssert.Contains(e.Message, "fetch");
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Concurrent_renders_overlap_on_one_engine()
 	{
 		var (services, engine) = Build(SlowModule);
@@ -189,7 +185,7 @@ public class NodeRenderEngineTests
 		await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => One())).WaitAsync(TimeSpan.FromMilliseconds(2500));
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Prepare_fails_on_an_unreadable_module()
 	{
 		var services = new ServiceCollection();
@@ -200,7 +196,7 @@ public class NodeRenderEngineTests
 
 		// A broken module must fail preparation — and with it the deployment — rather than stand up
 		// an engine that quietly serves nothing.
-		await Assert.ThrowsAnyAsync<Exception>(() => engine.PrepareAsync());
+		await Assert.ThrowsAsync<Exception>(() => engine.PrepareAsync());
 	}
 
 }

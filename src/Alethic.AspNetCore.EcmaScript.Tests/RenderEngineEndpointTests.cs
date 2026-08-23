@@ -5,7 +5,6 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-using Alethic.AspNetCore.EcmaScript;
 using Alethic.AspNetCore.EcmaScript.Node;
 
 using Microsoft.AspNetCore.Builder;
@@ -14,15 +13,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-
-using Xunit;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Alethic.AspNetCore.EcmaScript.Tests;
 
 /// <summary>
 /// Drives the endpoint layer through a real server, against the Node rendering engine.
 /// </summary>
-[Collection("Node")]
+[TestClass]
 public class RenderEngineEndpointTests
 {
 
@@ -89,21 +87,21 @@ public class RenderEngineEndpointTests
 		return (app, app.GetTestClient(), routes);
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Manifest_routes_are_mapped_and_render()
 	{
 		var (app, client, routes) = await StartAsync(AppModule);
 		await using var _ = app;
 
-		Assert.Equal(3, routes.Count);
+		Assert.AreEqual(3, routes.Count);
 
 		var response = await client.GetAsync("/parks/enchanted-rock");
-		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		Assert.Equal("yes", response.Headers.GetValues("x-app").Single());
-		Assert.Equal("<h1>rendered /parks/enchanted-rock</h1>", await response.Content.ReadAsStringAsync());
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		Assert.AreEqual("yes", response.Headers.GetValues("x-app").Single());
+		Assert.AreEqual("<h1>rendered /parks/enchanted-rock</h1>", await response.Content.ReadAsStringAsync());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Client_routes_never_reach_the_engine()
 	{
 		var (app, client, _) = await StartAsync(AppModule);
@@ -111,12 +109,12 @@ public class RenderEngineEndpointTests
 
 		var response = await client.GetAsync("/profile");
 
-		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		Assert.False(response.Headers.Contains("x-app"), "the engine rendered a route the manifest marked Client");
-		Assert.Contains("id=\"app\"", await response.Content.ReadAsStringAsync());
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		Assert.IsFalse(response.Headers.Contains("x-app"), "the engine rendered a route the manifest marked Client");
+		StringAssert.Contains(await response.Content.ReadAsStringAsync(), "id=\"app\"");
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Fallback_serves_paths_no_route_claimed()
 	{
 		var (app, client, _) = await StartAsync(AppModule);
@@ -124,11 +122,11 @@ public class RenderEngineEndpointTests
 
 		var response = await client.GetAsync("/anything/else");
 
-		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		Assert.Equal("<h1>rendered /anything/else</h1>", await response.Content.ReadAsStringAsync());
+		Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+		Assert.AreEqual("<h1>rendered /anything/else</h1>", await response.Content.ReadAsStringAsync());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Application_status_codes_pass_through()
 	{
 		var (app, client, _) = await StartAsync(AppModule);
@@ -137,27 +135,27 @@ public class RenderEngineEndpointTests
 		// The application's router decides what exists; a miss must be a real 404 on the wire, not a
 		// soft 200 with not-found copy in it.
 		var response = await client.GetAsync("/missing");
-		Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+		Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task No_manifest_means_fallback_only()
 	{
 		var (app, client, routes) = await StartAsync(BareModule);
 		await using var _ = app;
 
-		Assert.Empty(routes);
-		Assert.Equal("bare", await client.GetStringAsync("/whatever"));
+		Assert.AreEqual(0, routes.Count);
+		Assert.AreEqual("bare", await client.GetStringAsync("/whatever"));
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Missing_manifest_fails_startup_when_required()
 	{
-		await Assert.ThrowsAsync<InvalidOperationException>(
+		await Assert.ThrowsExactlyAsync<InvalidOperationException>(
 			() => StartAsync(BareModule, o => o.RequireManifest = true));
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task ConfigureEndpoint_sees_each_route_and_the_fallback()
 	{
 		var seen = new List<string?>();
@@ -166,10 +164,10 @@ public class RenderEngineEndpointTests
 		await using var _1 = app;
 
 		// Client routes are not mapped, so the callback must not see them either; null is the fallback.
-		Assert.Equal(["park", "about", null], seen);
+		CollectionAssert.AreEqual(new string?[] { "park", "about", null }, seen);
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Manifest_ids_name_endpoints_for_LinkGenerator()
 	{
 		var (app, _, _) = await StartAsync(AppModule);
@@ -179,11 +177,11 @@ public class RenderEngineEndpointTests
 		// name — canonical redirects and sitemaps use the platform facility, not a bespoke one.
 		var links = app.Services.GetRequiredService<LinkGenerator>();
 
-		Assert.Equal("/parks/enchanted-rock", links.GetPathByName("park", new { parkRef = "enchanted-rock" }));
-		Assert.Equal("/about", links.GetPathByName("about", values: null));
+		Assert.AreEqual("/parks/enchanted-rock", links.GetPathByName("park", new { parkRef = "enchanted-rock" }));
+		Assert.AreEqual("/about", links.GetPathByName("about", values: null));
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Render_failure_surfaces_as_an_error()
 	{
 		var (app, client, _) = await StartAsync(AppModule);
@@ -192,17 +190,8 @@ public class RenderEngineEndpointTests
 		// A failure before the first byte propagates like any unhandled endpoint exception, for the
 		// server's error handling to turn into a 500. The test host rethrows instead of translating,
 		// which is what makes the contract assertable here.
-		var e = await Assert.ThrowsAnyAsync<Exception>(() => client.GetAsync("/broken"));
-		Assert.Contains("deliberately broken", e.Message);
+		var e = await Assert.ThrowsAsync<Exception>(() => client.GetAsync("/broken"));
+		StringAssert.Contains(e.Message, "deliberately broken");
 	}
-
-}
-
-/// <summary>
-/// Serializes every test that touches the embedded runtime.
-/// </summary>
-[CollectionDefinition("Node", DisableParallelization = true)]
-public class NodeCollection
-{
 
 }

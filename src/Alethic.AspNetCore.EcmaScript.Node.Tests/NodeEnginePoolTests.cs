@@ -3,12 +3,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Alethic.AspNetCore.EcmaScript.Node;
-
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JavaScript.NodeApi;
-
-using Xunit;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Alethic.AspNetCore.EcmaScript.Node.Tests;
 
@@ -16,7 +13,7 @@ namespace Alethic.AspNetCore.EcmaScript.Node.Tests;
 /// Exercises the pool as what it is: a concrete facility for running JavaScript, with ordinary
 /// node-api-dotnet written inside a lease. Nothing here is web-shaped.
 /// </summary>
-[Collection("Node")]
+[TestClass]
 public class NodeEnginePoolTests
 {
 
@@ -31,7 +28,7 @@ public class NodeEnginePoolTests
 		return services.BuildServiceProvider();
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Lease_runs_javascript_on_the_engine_thread()
 	{
 		await using var services = BuildServices();
@@ -40,10 +37,10 @@ public class NodeEnginePoolTests
 		await using var lease = await pool.AcquireAsync();
 		var result = await lease.RunAsync(() => Task.FromResult((int)JSValue.RunScript("6 * 7")));
 
-		Assert.Equal(42, result);
+		Assert.AreEqual(42, result);
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Modules_evaluate_once_per_engine_and_keep_state()
 	{
 		await using var services = BuildServices();
@@ -58,11 +55,11 @@ public class NodeEnginePoolTests
 
 		// One engine, so successive leases see the same evaluated module: the counter advances
 		// rather than resetting, which is the evaluated-once contract of a module source.
-		Assert.Equal(1, await NextAsync());
-		Assert.Equal(2, await NextAsync());
+		Assert.AreEqual(1, await NextAsync());
+		Assert.AreEqual(2, await NextAsync());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Promises_and_timers_work_inside_a_lease()
 	{
 		await using var services = BuildServices();
@@ -77,10 +74,10 @@ public class NodeEnginePoolTests
 			return (int)await pending.AsTask();
 		});
 
-		Assert.Equal(42, result);
+		Assert.AreEqual(42, result);
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Concurrent_leases_overlap_on_one_engine()
 	{
 		await using var services = BuildServices(o => o.MaxConcurrencyPerEngine = 8);
@@ -109,10 +106,10 @@ public class NodeEnginePoolTests
 
 		var peaks = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => One()));
 
-		Assert.True(peaks.Max() > 1, "leases never overlapped inside the module");
+		Assert.IsTrue(peaks.Max() > 1, "leases never overlapped inside the module");
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Capacity_is_bounded_and_times_out()
 	{
 		await using var services = BuildServices(o =>
@@ -125,10 +122,10 @@ public class NodeEnginePoolTests
 		// The single slot is held and never released, so the next acquisition must give up rather
 		// than wait forever.
 		await using var held = await pool.AcquireAsync();
-		await Assert.ThrowsAsync<TimeoutException>(() => pool.AcquireAsync());
+		await Assert.ThrowsExactlyAsync<TimeoutException>(() => pool.AcquireAsync());
 	}
 
-	[Fact]
+	[TestMethod]
 	public async Task Prepare_stands_engines_up_and_warms_them()
 	{
 		await using var services = BuildServices(o => o.EngineCount = 2);
@@ -142,16 +139,7 @@ public class NodeEnginePoolTests
 			Interlocked.Increment(ref warmed);
 		});
 
-		Assert.Equal(2, warmed);
+		Assert.AreEqual(2, warmed);
 	}
-
-}
-
-/// <summary>
-/// Serializes every test that touches the embedded runtime.
-/// </summary>
-[CollectionDefinition("Node", DisableParallelization = true)]
-public class NodeCollection
-{
 
 }

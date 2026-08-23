@@ -1,28 +1,52 @@
 <Project>
     <PropertyGroup>
-        <PackageIcon>icon.png</PackageIcon>
-        <Version>1.0.0-alpha.1</Version>
-        <LangVersion>13.0</LangVersion>
-        <IncludeSymbols>true</IncludeSymbols>
-        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-        <PackageTags>JavaScript, ECMAScript, SSR, Node</PackageTags>
-        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-        <PackageProjectUrl>https://github.com/Alethic/Alethic.AspNetCore.EcmaScript</PackageProjectUrl>
-        <RepositoryType>Git</RepositoryType>
-        <RepositoryUrl>https://github.com/Alethic/Alethic.AspNetCore.EcmaScript</RepositoryUrl>
+        <LangVersion Condition=" '$(LangVersion)' == '' ">13.0</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    </PropertyGroup>
-
-    <PropertyGroup Label="Copyright Info">
-        <Authors>Jerome Haltom</Authors>
-        <CurrentYear Condition=" '$(CurrentYear)' == '' ">$([System.DateTime]::UtcNow.Year.ToString())</CurrentYear>
-        <Copyright>Copyright © $(CurrentYear) $(Authors)</Copyright>
-        <Company>Alethic Solutions</Company>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <!-- IDE0008 is "use explicit type instead of var". This codebase uses var throughout and is not
+             going to stop, so the suggestion is noise rather than a rule anyone will act on. -->
+        <NoWarn>$(NoWarn);IDE0008</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
-        <SourceRoot Include="$(MSBuildThisFileDirectory)\" />
-        <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="" />
+        <Authors Include="Jerome Haltom" />
     </ItemGroup>
+
+    <PropertyGroup Label="Copyright Info">
+        <ProductName>Alethic.AspNetCore.EcmaScript</ProductName>
+        <Authors>@(Authors, ',')</Authors>
+        <CurrentYear Condition=" '$(CurrentYear)' == '' ">$([System.DateTime]::UtcNow.Year.ToString())</CurrentYear>
+        <Copyright>Copyright © $(CurrentYear) @(Authors, ', ')</Copyright>
+    </PropertyGroup>
+
+    <PropertyGroup Label="Version Info">
+        <DefaultMajorVersion>1</DefaultMajorVersion>
+        <Version Condition=" '$(Version)' == '' ">$(DefaultMajorVersion).0.0-dev</Version>
+        <AssemblyVersion Condition=" '$(AssemblyVersion)' == '' ">$(DefaultMajorVersion).0.0.0</AssemblyVersion>
+        <FileVersion Condition=" '$(FileVersion)' == '' ">$(DefaultMajorVersion).0.0.0</FileVersion>
+        <InformationalVersion Condition=" '$(InformationalVersion)' == '' ">$(DefaultMajorVersion).0.0.0</InformationalVersion>
+    </PropertyGroup>
+
+    <PropertyGroup Label="Package Info">
+        <RepositoryUrl Condition=" '$(RepositoryUrl)' == '' ">https://github.com/alethic/Alethic.AspNetCore.EcmaScript.git</RepositoryUrl>
+        <RepositoryType Condition=" '$(RepositoryType)' == '' ">git</RepositoryType>
+        <PackageProjectUrl  Condition=" '$(PackageProjectUrl)' == '' ">https://github.com/alethic/Alethic.AspNetCore.EcmaScript</PackageProjectUrl>
+        <PackageVersion Condition=" '$(PackageVersion)' == '' ">$(Version)</PackageVersion>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+
+    <PropertyGroup Label="Debug Info">
+        <IncludeSymbols>true</IncludeSymbols>
+        <EmbedAllSources>true</EmbedAllSources>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="IKVM.Core.MSBuild" Version="0.1.108">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
 </Project>

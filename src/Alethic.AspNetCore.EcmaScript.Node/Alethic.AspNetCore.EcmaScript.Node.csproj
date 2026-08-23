@@ -2,10 +2,16 @@
 
 	<PropertyGroup>
 		<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
-		<Nullable>enable</Nullable>
 		<Description>Rendering engine backed by a Node runtime embedded in the process through node-api-dotnet, and the pooled Node engines it runs on.</Description>
-		<PackageTags>ASP.NET Core, JavaScript, Node, SSR</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
+		<PackageTags>aspnetcore;javascript;node;ssr;render</PackageTags>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+		<None Include="..\..\icon.png" Pack="true" PackagePath="\" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
