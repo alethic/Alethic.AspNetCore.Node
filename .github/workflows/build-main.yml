@@ -1,13 +1,13 @@
-name: build-master
+name: build-main
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   build:
 
-    name: build-master
+    name: build-main
     runs-on: ubuntu-latest
 
     steps:

@@ -1,6 +1,7 @@
 <Project>
     <PropertyGroup>
         <PackageIcon>icon.png</PackageIcon>
+        <Version>1.0.0-alpha.1</Version>
         <LangVersion>13.0</LangVersion>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
