@@ -1,0 +1,9 @@
+<Solution>
+    <Folder Name="/src/">
+        <Project Path="src/Alethic.EcmaScript.Hosting/Alethic.EcmaScript.Hosting.csproj" />
+        <Project Path="src/Alethic.EcmaScript.Hosting.Node/Alethic.EcmaScript.Hosting.Node.csproj" />
+    </Folder>
+    <Folder Name="/tests/">
+        <Project Path="tests/Alethic.EcmaScript.Hosting.Node.Tests/Alethic.EcmaScript.Hosting.Node.Tests.csproj" />
+    </Folder>
+</Solution>

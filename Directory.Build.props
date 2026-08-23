@@ -1,31 +1,25 @@
 <Project>
     <PropertyGroup>
-		<PackageIcon>icon.png</PackageIcon>
-		<LangVersion>12.0</LangVersion>
-		<IncludeSymbols>true</IncludeSymbols>
-		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
-		<PackageTags>ASP.NET Core, SPA prerendering</PackageTags>
-		<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-		<PackageProjectUrl>https://github.com/Alethic/Alethic.AspNetCore.EcmaScript</PackageProjectUrl>
-		<RepositoryType>Git</RepositoryType>
-		<RepositoryUrl>https://github.com/Alethic/Alethic.AspNetCore.EcmaScript</RepositoryUrl>
-		<GenerateDocumentationFile>true</GenerateDocumentationFile>
-		<PublishRepositoryUrl>true</PublishRepositoryUrl>
-	</PropertyGroup>
+        <PackageIcon>icon.png</PackageIcon>
+        <LangVersion>13.0</LangVersion>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <PackageTags>JavaScript, ECMAScript, SSR, Node</PackageTags>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/Alethic/Alethic.AspNetCore.EcmaScript</PackageProjectUrl>
+        <RepositoryType>Git</RepositoryType>
+        <RepositoryUrl>https://github.com/Alethic/Alethic.AspNetCore.EcmaScript</RepositoryUrl>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    </PropertyGroup>
 
-	<ItemGroup>
-		<Authors Include="Jerome Haltom" />
-		<Authors Include="Pieterjan De Clippel" />
-	</ItemGroup>
+    <PropertyGroup Label="Copyright Info">
+        <Authors>Jerome Haltom</Authors>
+        <CurrentYear Condition=" '$(CurrentYear)' == '' ">$([System.DateTime]::UtcNow.Year.ToString())</CurrentYear>
+        <Copyright>Copyright © $(CurrentYear) $(Authors)</Copyright>
+        <Company>Alethic Solutions</Company>
+    </PropertyGroup>
 
-	<PropertyGroup Label="Copyright Info">
-		<ProductName>IKVM</ProductName>
-		<Authors>@(Authors, ',')</Authors>
-		<CurrentYear Condition=" '$(CurrentYear)' == '' ">$([System.DateTime]::UtcNow.Year.ToString())</CurrentYear>
-		<Copyright>Copyright © $(CurrentYear) @(Authors, ', ')</Copyright>
-		<Company>Alethic Solutions</Company>
-	</PropertyGroup>
-	
     <ItemGroup>
         <SourceRoot Include="$(MSBuildThisFileDirectory)\" />
         <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="" />

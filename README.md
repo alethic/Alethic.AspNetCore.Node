@@ -1,175 +1,62 @@
-# Alethic.AspNetCore.EcmaScript.SpaServices.Routing
-This project facilitates server-side prerendering in ASP.NET Core.
+# Alethic.AspNetCore.EcmaScript
 
-## Version info
+Runs JavaScript applications inside a .NET process, on a real Node runtime embedded through
+[node-api-dotnet](https://github.com/microsoft/node-api-dotnet). No sidecar process, no HTTP hop:
+the application's server bundle is evaluated in-process and driven through the Web-standard fetch
+contract, `(Request) => Promise<Response>`, which every current SSR framework — React, Angular,
+SvelteKit, React Router — exposes or composes with.
 
-| License                                                                                                               | Build status                                                                                                          | Code coverage | Code quality |
-|-----------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|---------------|--------------|
-| [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0) | ![.NET Core](https://github.com/MintPlayer/Alethic.AspNetCore.EcmaScript.SpaServices.Routing/workflows/.NET%20Core/badge.svg) |               | [![Codacy Badge](https://app.codacy.com/project/badge/Grade/a1528e2873ac4375881f4ccc00b70a91)](https://www.codacy.com/gh/MintPlayer/Alethic.AspNetCore.EcmaScript.SpaServices.Routing?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=MintPlayer/Alethic.AspNetCore.EcmaScript.SpaServices.Routing&amp;utm_campaign=Badge_Grade) |
+The repository previously carried a fork of MintPlayer.AspNetCore.SpaServices, the community
+continuation of Microsoft's SpaServices.Extensions. That model — JSON-RPC into a Node child
+process, per-framework prerenderer builders, routes re-declared in C# — is retired and removed;
+the final state of that lineage is preserved on the `wip/spa-restructure-2025-02` branch.
 
-| Package                                        | Release                                                                                                                                                                                         | Preview                                                                                                                                                                                            | Downloads |
-|------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| Alethic.AspNetCore.EcmaScript.Node             | [![NuGet Version](https://img.shields.io/nuget/v/Alethic.AspNetCore.EcmaScript.Node.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.Node)                         | [![NuGet Version](https://img.shields.io/nuget/vpre/Alethic.AspNetCore.EcmaScript.Node.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.Node)                         | [![NuGet](https://img.shields.io/nuget/dt/Alethic.AspNetCore.EcmaScript.Node.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.Node)                         |
-| Alethic.AspNetCore.EcmaScript.SpaServices              | [![NuGet Version](https://img.shields.io/nuget/v/Alethic.AspNetCore.EcmaScript.SpaServices.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices)                           | [![NuGet Version](https://img.shields.io/nuget/vpre/Alethic.AspNetCore.EcmaScript.SpaServices.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices)                           | [![NuGet](https://img.shields.io/nuget/dt/Alethic.AspNetCore.EcmaScript.SpaServices.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices)                           |
-| Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering | [![NuGet Version](https://img.shields.io/nuget/v/Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering) | [![NuGet Version](https://img.shields.io/nuget/vpre/Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering) | [![NuGet](https://img.shields.io/nuget/dt/Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices.Prerendering) |
-| Alethic.AspNetCore.EcmaScript.SpaServices.Routing      | [![NuGet Version](https://img.shields.io/nuget/v/Alethic.AspNetCore.EcmaScript.SpaServices.Routing.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices.Routing)           | [![NuGet Version](https://img.shields.io/nuget/vpre/Alethic.AspNetCore.EcmaScript.SpaServices.Routing.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices.Routing)           |[![NuGet](https://img.shields.io/nuget/dt/Alethic.AspNetCore.EcmaScript.SpaServices.Routing.svg?style=flat)](https://www.nuget.org/packages/Alethic.AspNetCore.EcmaScript.SpaServices.Routing)            |
+## Layout
 
-## Server-side rendering
-If you haven't setup SSR yet, please consult [this manual](https://medium.com/@pieterjandeclippel/server-side-rendering-in-asp-net-core-angular-6df7adacbdaa).
+| Project | Contents |
+|---|---|
+| `Alethic.EcmaScript.Hosting` | Engines, pools, modules, options. No ASP.NET dependency; usable from a console tool. |
+| `Alethic.EcmaScript.Hosting.Node` | The embedded-Node backend. |
 
-## Installation
-### NuGet package manager
-Open the NuGet package manager and install `Alethic.AspNetCore.EcmaScript.SpaServices.Routing` in your project
-### Package manager console
-Install-Package Alethic.AspNetCore.EcmaScript.SpaServices.Routing
+An ASP.NET Core integration layer (endpoint mapping, route manifests, warmup) sits above these and
+is under construction.
 
-## Usage
-### Register SPA routes
-The ASP.NET Core application needs to be aware of your angular/react SPA routes.
-Therefor you need to provide these with the SpaRouteBuilder. For example:
+## Shape
 
-    public void ConfigureServices(IServiceCollection services)
-    {
-        // Define the SPA-routes for our helper
-        services.AddSpaRoutes(routes => routes
-            .Route("", "home")
-            .Group("person", "person", person_routes => person_routes
-                .Route("", "list")
-                .Route("create", "create")
-                .Route("{id}", "show")
-                .Route("{id}/edit", "edit")
-            )
-        );
-    }
-    
-You can define routing parameters in your paths as well.
+```csharp
+services.AddJavaScriptEnginePool(o =>
+{
+    o.EngineCount = 4;                 // must track the CPU limit; see remarks on the option
+    o.MaxConcurrencyPerEngine = 4;     // backpressure, not mutual exclusion
+})
+.UseEmbeddedNode();
 
-### Adding SPA prerendering middleware
-To enable SPA prerendering you'd normally use the following middleware registration code:
+var pool = provider.GetRequiredService<IJavaScriptEnginePoolProvider>().Get("Default");
+var app = pool.GetApplication(JavaScriptModuleSource.FromFile("ssr/server.cjs"));
 
-    app.UseSpa(spa =>
-    {
-        ...
+using var response = await app.SendAsync(request, cancellationToken);   // streams
+var routes = await app.InvokeAsync<List<RouteEntry>>("routes", [], cancellationToken);
+```
 
-        spa.UseSpaPrerendering(options =>
-        {
-            options.BootModulePath = $"{spa.Options.SourcePath}/dist/server/main.js";
-            options.BootModuleBuilder = env.IsDevelopment()
-                ? new AngularCliBuilder(npmScript: "build:ssr")
-                : null;
-            options.ExcludeUrls = new[] { "/sockjs-node" };
-        });
+The module is a self-contained CommonJS bundle whose default export carries `fetch(request)` and
+whatever other exports the host wants to call:
 
-        ...
-    });
-    
-### Supplying data
-You probably want to pass data based on which url the visitor opens the first time.
-With this package you can easily determine which angular component is to be rendered and what data needs to be provided to the angular app.
+```js
+export default {
+    fetch(request) { /* return a Response; sync or async */ },
+    routes() { /* optional: route manifest for the host */ },
+};
+```
 
-    public void Configure(IApplicationBuilder app, IHostingEnvironment env, ISpaRouteService spaRouteService)
-    {
-        ...
+## Constraints worth knowing
 
-        app.UseSpa(spa =>
-        {
-            ...
-            
-            spa.UseSpaPrerendering(options =>
-            {
-                ...
-
-                options.SupplyData = (context, data) =>
-                {
-                    var route = spaRouteService.GetCurrentRoute(context);
-                    var personRepository = context.RequestServices.GetRequiredService<IPersonRepository>();
-
-                    switch (route?.Name)
-                    {
-                        case "person-list":
-                            {
-                                var people = personRepository.GetPeople();
-                                data["people"] = people;
-                            }
-                            break;
-                        case "person-show":
-                        case "person-edit":
-                            {
-                                var id = System.Convert.ToInt32(route.Parameters["id"]);
-                                var person = personRepository.GetPerson(id);
-                                data["person"] = person;
-                            }
-                            break;
-                    }
-                };
-            });
-        }
-    }
-
-You can't perform dependecy injection here since the SupplyData is a delegate.
-You can however retrieve an instance from the service-container through `context.RequestServices` or `context.ApplicationServices`.
-
-### main.server.ts
-The data you passed in the SupplyData delegate is made available on the params.data object in the `main.server.ts`.
-The refactored code can look like this:
-
-    const providers: StaticProvider[] = [
-      provideModuleMap(LAZY_MODULE_MAP),
-      { provide: APP_BASE_HREF, useValue: params.baseUrl },
-      { provide: 'BASE_URL', useValue: params.origin + params.baseUrl },
-      { provide: 'MESSAGE', useValue: params.data.message }
-    ];
-
-    if ('people' in params.data) {
-      providers.push({ provide: 'PEOPLE', useValue: params.data.people })
-    }
-    if ('person' in params.data) {
-      providers.push({ provide: 'PERSON', useValue: params.data.person })
-    }
-
-    const options = {
-      document: params.data.originalHtml,
-      url: params.url,
-      extraProviders: providers
-    };
-
-### main.ts
-Each key you pass in the main.server.ts must also be provided in the main.ts:
-
-    const providers = [
-      { provide: 'BASE_URL', useFactory: getBaseUrl, deps: [] },
-      { provide: 'MESSAGE', useValue: 'Message from the client' },
-      { provide: 'PEOPLE', useValue: null },
-      { provide: 'PERSON', useValue: null }
-    ];
-
-### Use in components
-You can then use this value by using dependency injection in your components:
-
-    constructor(private personService: PersonService, @Inject('PERSON') private personInj: Person, private route: ActivatedRoute) {
-      if (personInj === null) {
-        var id = parseInt(this.route.snapshot.paramMap.get("id"));
-        this.personService.getPerson(id, true).subscribe(person => {
-          this.setPerson(person);
-        });
-      } else {
-        this.setPerson(personInj);
-      }
-    }
-
-### Generate SPA routes
-If necessary, you can generate an application URL on the server-side through c# code. Examples  for this use are when using a redirect from OpenSearch straight to your ShowComponent, or when generating an XML sitemap.
-
-To do so, there are 2 approaches:
-
-#### Using a dictionary
-
-    var parms = new Dictionary<string, object>();
-    parms["id"] = 5;
-    var route = spaRouteService.GenerateUrl("person-edit", parms);
-
-#### Using an anonymous type
-
-    var route = spaRouteService.GenerateUrl("person-edit", new {
-        id = 5
-    });
+- **Engines are threads; modules may share one.** A single engine overlaps many concurrent calls,
+  because everything a module awaits yields to its event loop. Engine count exists for CPU
+  parallelism and must be configured, never derived: inside a container the processor count lies.
+- **CommonJS only.** The embedded runtime registers no dynamic-import callback, so ES modules and
+  `import()` do not resolve. Bundle fully static (esbuild `--format=cjs`, code splitting off).
+- **Responses stream.** The response is returned when its head is known and the body follows; a
+  failure after the first byte can truncate the body but cannot change the status.
+- **Cancellation aborts the render**, through `AbortSignal` on the request, not merely the wait.
+- Reference the RID-specific `Microsoft.JavaScript.LibNode.<rid>` package. The umbrella package
+  depends on every platform at once and lands ~640 MB of native libraries in the output.
