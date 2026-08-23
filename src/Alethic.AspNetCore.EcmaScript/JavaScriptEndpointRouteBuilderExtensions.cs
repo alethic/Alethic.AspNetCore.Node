@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -115,22 +116,22 @@ public static class JavaScriptEndpointRouteBuilderExtensions
 	{
 		try
 		{
-			var routes = await application.Module.InvokeAsync<List<JavaScriptRoute>>("default." + options.RoutesExport, [], cancellationToken);
-			if (routes is not null)
-				return routes;
+			var json = await application.GetRoutesJsonAsync(options.RoutesExport, cancellationToken);
+			if (json is not null)
+				return JsonSerializer.Deserialize<List<JavaScriptRoute>>(json) ?? [];
 		}
 		catch (Exception e)
 		{
 			if (options.RequireManifest)
-				throw new InvalidOperationException($"JavaScript module '{application.Module.Source.Name}' offers no {options.RoutesExport}() manifest, and one is required.", e);
+				throw new InvalidOperationException($"JavaScript module '{application.Source.Name}' offers no {options.RoutesExport}() manifest, and one is required.", e);
 
 			logger.LogInformation("JavaScript module {Module} offers no {Export}() manifest; serving it entirely from the fallback. ({Reason})",
-				application.Module.Source.Name, options.RoutesExport, e.Message);
+				application.Source.Name, options.RoutesExport, e.Message);
 			return [];
 		}
 
 		if (options.RequireManifest)
-			throw new InvalidOperationException($"JavaScript module '{application.Module.Source.Name}' returned no route manifest from {options.RoutesExport}().");
+			throw new InvalidOperationException($"JavaScript module '{application.Source.Name}' returned no route manifest from {options.RoutesExport}().");
 
 		return [];
 	}

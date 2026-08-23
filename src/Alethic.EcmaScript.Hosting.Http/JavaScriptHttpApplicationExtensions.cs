@@ -22,7 +22,7 @@ public static class JavaScriptHttpApplicationExtensions
 		ArgumentNullException.ThrowIfNull(pool);
 		ArgumentNullException.ThrowIfNull(source);
 
-		return new JavaScriptHttpApplication(pool.GetModule(new HttpModuleSource(source)));
+		return new JavaScriptHttpApplication(pool, source);
 	}
 
 	/// <summary>

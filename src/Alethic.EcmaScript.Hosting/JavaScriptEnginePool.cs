@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace Alethic.EcmaScript.Hosting;
 
 /// <summary>
-/// Default pool: engines are created as demand requires them, and calls are placed on whichever
+/// Default pool: engines are created as demand requires them, and sessions are placed on whichever
 /// engine is carrying the least work.
 /// </summary>
 public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
@@ -48,16 +48,34 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 	public string Name => name;
 
 	/// <inheritdoc />
-	public IJavaScriptModule GetModule(JavaScriptModuleSource source)
+	public async Task<IJavaScriptSession> AcquireAsync(JavaScriptModuleSource source, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(source);
 		ObjectDisposedException.ThrowIf(disposed, this);
 
-		return new JavaScriptPoolModule(this, source);
+		if (await capacity.WaitAsync(options.AcquireTimeout, cancellationToken) == false)
+			throw new TimeoutException($"No capacity in JavaScript engine pool '{name}' within {options.AcquireTimeout}.");
+
+		Entry? entry = null;
+
+		try
+		{
+			entry = await SelectAsync(cancellationToken);
+			var module = await entry.Engine.ImportAsync(source, cancellationToken);
+			return new JavaScriptSession(this, entry, module);
+		}
+		catch
+		{
+			if (entry is not null)
+				Interlocked.Decrement(ref entry.InFlight);
+
+			capacity.Release();
+			throw;
+		}
 	}
 
 	/// <inheritdoc />
-	public async Task WarmAsync(JavaScriptModuleSource source, CancellationToken cancellationToken)
+	public async Task WarmAsync(JavaScriptModuleSource source, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(source);
 		ObjectDisposedException.ThrowIf(disposed, this);
@@ -73,60 +91,7 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 	}
 
 	/// <summary>
-	/// Takes a slot on whichever engine is least busy, and evaluates the module there if it has not
-	/// already been.
-	/// </summary>
-	/// <remarks>
-	/// The slot is held until the caller disposes it, which for a streaming response means until that
-	/// response has been read or abandoned rather than merely begun. Releasing when the head arrives
-	/// would leave a render running against a slot the pool believes is free, and the configured
-	/// concurrency would bound nothing.
-	/// </remarks>
-	/// <param name="source"></param>
-	/// <param name="cancellationToken"></param>
-	/// <exception cref="TimeoutException"></exception>
-	internal async Task<Slot> AcquireAsync(JavaScriptModuleSource source, CancellationToken cancellationToken)
-	{
-		ObjectDisposedException.ThrowIf(disposed, this);
-
-		if (await capacity.WaitAsync(options.AcquireTimeout, cancellationToken) == false)
-			throw new TimeoutException($"No capacity in JavaScript engine pool '{name}' within {options.AcquireTimeout}.");
-
-		Entry? entry = null;
-
-		try
-		{
-			entry = await SelectAsync(cancellationToken);
-			var instance = await entry.Engine.ImportAsync(source, cancellationToken);
-			return new Slot(this, entry, instance);
-		}
-		catch
-		{
-			if (entry is not null)
-				Interlocked.Decrement(ref entry.InFlight);
-
-			capacity.Release();
-			throw;
-		}
-	}
-
-	/// <summary>
-	/// Runs work against a module and releases the slot when it completes.
-	/// </summary>
-	/// <typeparam name="T"></typeparam>
-	/// <param name="source"></param>
-	/// <param name="work"></param>
-	/// <param name="cancellationToken"></param>
-	internal async Task<T> InvokeAsync<T>(JavaScriptModuleSource source, Func<IJavaScriptModuleInstance, Task<T>> work, CancellationToken cancellationToken)
-	{
-		var slot = await AcquireAsync(source, cancellationToken);
-
-		await using (slot)
-			return await work(slot.Instance);
-	}
-
-	/// <summary>
-	/// Returns a slot's capacity to the pool.
+	/// Returns a session's capacity to the pool.
 	/// </summary>
 	/// <param name="entry"></param>
 	void Release(Entry entry)
@@ -136,8 +101,8 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 	}
 
 	/// <summary>
-	/// Selects an engine and charges a slot to it, standing up another engine where every existing
-	/// one is already saturated and the configured size allows for it.
+	/// Selects an engine and charges it, standing up another engine where every existing one is
+	/// already saturated and the configured size allows for it.
 	/// </summary>
 	/// <param name="cancellationToken"></param>
 	async ValueTask<Entry> SelectAsync(CancellationToken cancellationToken)
@@ -255,10 +220,10 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 	}
 
 	/// <summary>
-	/// An engine and the number of calls currently on it. A class rather than a struct because the
+	/// An engine and the number of sessions currently on it. A class rather than a struct because the
 	/// counter is updated by interlocked operations on a shared field.
 	/// </summary>
-	internal sealed class Entry(IJavaScriptEngine engine)
+	sealed class Entry(IJavaScriptEngine engine)
 	{
 
 		public readonly IJavaScriptEngine Engine = engine;
@@ -270,11 +235,12 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 	/// <summary>
 	/// A claim on one engine's capacity, released on disposal.
 	/// </summary>
-	internal sealed class Slot : IAsyncDisposable
+	sealed class JavaScriptSession : IJavaScriptSession
 	{
 
 		readonly JavaScriptEnginePool pool;
 		readonly Entry entry;
+		readonly IJavaScriptModuleInstance module;
 
 		int released;
 
@@ -283,24 +249,25 @@ public sealed class JavaScriptEnginePool : IJavaScriptEnginePool
 		/// </summary>
 		/// <param name="pool"></param>
 		/// <param name="entry"></param>
-		/// <param name="instance"></param>
-		internal Slot(JavaScriptEnginePool pool, Entry entry, IJavaScriptModuleInstance instance)
+		/// <param name="module"></param>
+		public JavaScriptSession(JavaScriptEnginePool pool, Entry entry, IJavaScriptModuleInstance module)
 		{
 			this.pool = pool;
 			this.entry = entry;
-			Instance = instance;
+			this.module = module;
 		}
 
-		/// <summary>
-		/// The module, evaluated on the engine this slot is held against.
-		/// </summary>
-		public IJavaScriptModuleInstance Instance { get; }
+		/// <inheritdoc />
+		public IJavaScriptEngine Engine => entry.Engine;
+
+		/// <inheritdoc />
+		public IJavaScriptModuleInstance Module => module;
 
 		/// <inheritdoc />
 		public ValueTask DisposeAsync()
 		{
-			// Idempotent: a streaming response releases on disposal, which a caller may do more than
-			// once, and the pool must not gain capacity it never lost.
+			// Idempotent: disposal may arrive from more than one owner, and the pool must not gain
+			// capacity it never lost.
 			if (Interlocked.Exchange(ref released, 1) == 0)
 				pool.Release(entry);
 
