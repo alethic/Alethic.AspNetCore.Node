@@ -9,6 +9,7 @@
     <File Path="GitVersion.yml" />
     <File Path="global.json" />
     <File Path="icon.png" />
+    <File Path="LICENSE.txt" />
     <File Path="README.md" />
   </Folder>
   <Folder Name="/src/">
