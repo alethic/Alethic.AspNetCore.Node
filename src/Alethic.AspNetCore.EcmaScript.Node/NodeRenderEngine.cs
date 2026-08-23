@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -29,6 +30,12 @@ public sealed class NodeRenderEngine : IRenderEngine
 	readonly NodeModuleSource module;
 
 	/// <summary>
+	/// Per-engine readiness: the environment object, created once, and the application's optional
+	/// <c>init(env)</c>, awaited once. Keyed weakly so an engine's state goes with it.
+	/// </summary>
+	readonly ConditionalWeakTable<NodeEngine, Lazy<Task<JSReference>>> ready = new();
+
+	/// <summary>
 	/// Initializes a new instance.
 	/// </summary>
 	/// <param name="pool"></param>
@@ -45,7 +52,57 @@ public sealed class NodeRenderEngine : IRenderEngine
 
 	/// <inheritdoc />
 	public Task PrepareAsync(CancellationToken cancellationToken = default) =>
-		pool.PrepareAsync(lease => lease.ImportAsync(module, cancellationToken), cancellationToken);
+		pool.PrepareAsync(lease => EnsureReadyAsync(lease, cancellationToken), cancellationToken);
+
+	/// <summary>
+	/// Brings one engine to readiness: the module evaluated, the environment object built, and the
+	/// application's optional <c>init(env)</c> awaited — each exactly once per engine, whether the
+	/// engine came up during preparation or grew later under demand.
+	/// </summary>
+	/// <remarks>
+	/// The optional <c>init</c> export exists because a CommonJS bundle cannot top-level-await:
+	/// asynchronous startup work has no other legitimate home. A failing init fails preparation, and
+	/// with it the deployment, rather than quietly serving a half-started application.
+	/// </remarks>
+	/// <param name="lease"></param>
+	/// <param name="cancellationToken"></param>
+	Task<JSReference> EnsureReadyAsync(NodeEngineLease lease, CancellationToken cancellationToken)
+	{
+		var lazy = ready.GetValue(lease.Engine, _ => new Lazy<Task<JSReference>>(
+			() => InitializeAsync(lease, cancellationToken),
+			LazyThreadSafetyMode.ExecutionAndPublication));
+
+		return lazy.Value;
+	}
+
+	/// <summary>
+	/// Builds the environment object and runs the application's init on the lease's engine.
+	/// </summary>
+	/// <param name="lease"></param>
+	/// <param name="cancellationToken"></param>
+	async Task<JSReference> InitializeAsync(NodeEngineLease lease, CancellationToken cancellationToken)
+	{
+		var environment = new Dictionary<string, string>(options.Environment);
+
+		return await lease.RunAsync(module, async exports =>
+		{
+			var env = JSValue.CreateObject();
+			foreach (var (key, value) in environment)
+				env[key] = value;
+
+			var envRef = new JSReference(env, isWeak: false);
+
+			var app = exports["default"];
+			if (app.IsNullOrUndefined() == false && app["init"].IsFunction())
+			{
+				// Scope ends at the await, so the env is re-read through its reference after it.
+				var pending = app["init"].Call(app, env);
+				await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", pending)).AsTask();
+			}
+
+			return envRef;
+		}, cancellationToken);
+	}
 
 	/// <inheritdoc />
 	public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
@@ -64,13 +121,15 @@ public sealed class NodeRenderEngine : IRenderEngine
 
 		try
 		{
+			var env = await EnsureReadyAsync(lease, cancellationToken);
+
 			var pipe = new Pipe();
 			var head = new TaskCompletionSource<ResponseHead>(TaskCreationOptions.RunContinuationsAsynchronously);
 
 			// The render outlives this method: the response is returned once its head is known, and
 			// its body continues to arrive afterwards. Faults before the head surface to the caller;
 			// faults after it can only truncate the body, the status having already been settled.
-			var pump = PumpAsync(lease, url, method, headers, body, pipe.Writer, head, cancellationToken);
+			var pump = PumpAsync(lease, env, url, method, headers, body, pipe.Writer, head, cancellationToken);
 
 			var completed = await Task.WhenAny(head.Task, pump);
 			if (completed == pump)
@@ -104,6 +163,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 	public async Task<IReadOnlyList<RenderRoute>?> GetRoutesAsync(CancellationToken cancellationToken = default)
 	{
 		await using var lease = await pool.AcquireAsync(cancellationToken);
+		await EnsureReadyAsync(lease, cancellationToken);
 
 		return await lease.RunAsync(module, async exports =>
 		{
@@ -111,6 +171,8 @@ public sealed class NodeRenderEngine : IRenderEngine
 			if (app.IsNullOrUndefined())
 				return null;
 
+			// A function is an object too, so a bare-function default may still carry the manifest
+			// as a property its factory attached.
 			var function = app[options.RoutesExport];
 			if (function.IsFunction() == false)
 				return null;
@@ -155,6 +217,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 	/// because that is where it lives.
 	/// </remarks>
 	/// <param name="lease"></param>
+	/// <param name="env"></param>
 	/// <param name="url"></param>
 	/// <param name="method"></param>
 	/// <param name="headers"></param>
@@ -162,14 +225,18 @@ public sealed class NodeRenderEngine : IRenderEngine
 	/// <param name="writer"></param>
 	/// <param name="head"></param>
 	/// <param name="cancellationToken"></param>
-	async Task PumpAsync(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, byte[]? body, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
+	async Task PumpAsync(NodeEngineLease lease, JSReference env, string url, string method, List<KeyValuePair<string, string>> headers, byte[]? body, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
 	{
 		try
 		{
 			await lease.RunAsync(module, async exports =>
 			{
+				// The module-worker convention, with one leniency: a bare function as the default
+				// export is the fetch handler itself, which is what createRequestHandler-style
+				// factories produce.
 				var app = exports["default"];
-				if (app.IsNullOrUndefined() || app["fetch"].IsFunction() == false)
+				var fetch = app.IsFunction() ? app : app.IsNullOrUndefined() ? app : app["fetch"];
+				if (fetch.IsFunction() == false)
 					throw new InvalidOperationException($"Module '{module.Name}' has no default export with a fetch function.");
 
 				var controller = JSValue.RunScript("new AbortController()");
@@ -178,7 +245,7 @@ public sealed class NodeRenderEngine : IRenderEngine
 					() => controllerRef.GetValue().CallMethod("abort", "the request was aborted")));
 
 				var request = BuildRequest(url, method, headers, body, controller["signal"]);
-				var pending = app["fetch"].Call(app, request);
+				var pending = fetch.Call(app.IsFunction() ? JSValue.Undefined : app, request, env.GetValue());
 
 				// Scope ends at the await; everything above but the references is invalid after it.
 				var response = await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", pending)).AsTask();

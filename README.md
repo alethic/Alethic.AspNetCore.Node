@@ -54,21 +54,45 @@ await app.MapRenderEngineAsync();
 await app.RunAsync();
 ```
 
-The application's server module is a self-contained CommonJS bundle whose default export carries
-`fetch(request)` and, optionally, a route manifest in ASP.NET template syntax — emitted by the
-application itself, the one place that knows its framework's routing:
+## The application contract
+
+The application's server module is a self-contained CommonJS bundle following the module-worker
+convention — the `export default { fetch }` shape shared by Cloudflare Workers, Deno, Bun, and the
+frameworks that target them. Every element is optional except `fetch`:
 
 ```js
 export default {
-    fetch(request) { /* return a Response; sync or async */ },
+    async init(env) { /* optional: awaited once per engine, before anything else */ },
+    fetch(request, env) { /* return a Response; sync or async */ },
     routes() {
         return [
-            { pattern: '/parks/{parkRef}', renderMode: 'Server' },
+            { pattern: '/parks/:parkRef', renderMode: 'Server' },
             { pattern: '/profile', renderMode: 'Client' },   // never touches the engine
         ];
     },
 };
 ```
+
+- **`fetch(request, env)`** — the Web-standard handler. A bare function as the default export is
+  accepted too, which is what `createRequestHandler`-style factories produce. `env` carries the
+  values the host supplies through `NodeRenderEngineOptions.Environment` — an internal API address,
+  an environment name — following the worker convention's second argument.
+- **`init(env)`** — optional, awaited once per engine before the first render. It exists because a
+  CommonJS bundle cannot top-level-await, so asynchronous startup work has no other home; a failing
+  init fails the deployment.
+- **`routes()`** — optional manifest, patterns in **URLPattern** pathname syntax (the WHATWG
+  standard), so the application never learns anything about its host. The host converts the
+  expressible subset to its own routing; a pattern beyond it is simply served by the fallback.
+
+The per-framework cost of that contract:
+
+| Framework | Entry |
+|---|---|
+| Hono, Elysia, Nitro (worker preset) | `export default app` — zero glue |
+| React Router 7 / Remix | `export default createRequestHandler(build)` — the bare function is accepted |
+| Astro | wrap `app.render(request)` in a few lines |
+| SvelteKit | `init` calls `server.init({ env })`; `fetch` calls `server.respond(request)` |
+| Angular | wrap `AngularAppEngine.handle(request)`, mapping its null to a 404 or the shell |
 
 The pool works with no web anywhere in sight — a lease is a claim on one engine, and inside
 `RunAsync` you are on its thread writing node-api-dotnet:

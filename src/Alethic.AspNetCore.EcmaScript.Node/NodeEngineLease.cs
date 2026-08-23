@@ -41,6 +41,11 @@ public sealed class NodeEngineLease : IAsyncDisposable
 	}
 
 	/// <summary>
+	/// The engine this lease is held against, for per-engine bookkeeping within the package.
+	/// </summary>
+	internal NodeEngine Engine => engine;
+
+	/// <summary>
 	/// Runs work on the engine's JavaScript thread.
 	/// </summary>
 	/// <typeparam name="T"></typeparam>

@@ -43,7 +43,7 @@ public class RenderEngineEndpointTests
 			},
 			routes() {
 				return [
-					{ pattern: '/parks/{parkRef}', renderMode: 'Server', id: 'park' },
+					{ pattern: '/parks/:parkRef', renderMode: 'Server', id: 'park' },
 					{ pattern: '/profile', renderMode: 'Client', id: 'profile' },
 					{ pattern: '/about', renderMode: 'Prerender', id: 'about' },
 				];

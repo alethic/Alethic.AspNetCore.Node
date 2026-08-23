@@ -70,18 +70,20 @@ public static class RenderEngineEndpointRouteBuilderExtensions
 
 		foreach (var route in routes)
 		{
-			if (route.Pattern is null)
+			var template = route.Pattern is null ? null : UrlPatternConverter.ToRouteTemplate(route.Pattern);
+			if (template is null)
 			{
-				// Declared but untranslatable: the fallback serves it, and the application's own
-				// router still renders the right thing. Only the per-route policy is lost.
-				logger.LogDebug("Render route {Id} has no pattern and is left to the fallback.", route.Id ?? "(unnamed)");
+				// Absent, or using URLPattern features a route template cannot carry: the fallback
+				// serves it, and the application's own router still renders the right thing. Only the
+				// per-route policy is lost.
+				logger.LogDebug("Render route {Id} ({Pattern}) is left to the fallback.", route.Id ?? "(unnamed)", route.Pattern ?? "no pattern");
 				continue;
 			}
 
 			if (route.RenderMode == RenderMode.Client)
 				continue;
 
-			var endpoint = endpoints.Map(route.Pattern, context => DispatchAsync(context, engine));
+			var endpoint = endpoints.Map(template, context => DispatchAsync(context, engine));
 			endpoint.WithMetadata(route);
 
 			// A route with an id is an addressable endpoint: LinkGenerator can build its URL by name

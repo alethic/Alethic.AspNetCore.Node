@@ -6,14 +6,17 @@ namespace Alethic.AspNetCore.EcmaScript;
 /// One entry of a rendering engine's route manifest.
 /// </summary>
 /// <remarks>
-/// A pattern the application could not express in ASP.NET template syntax is null; such a route is
-/// served by the fallback endpoint rather than a mapped one, losing only its per-route policy.
+/// Patterns are URLPattern pathnames — the WHATWG syntax every framework's routes lower to — so an
+/// application declares its manifest without knowing anything about its host. A null pattern, or one
+/// using URLPattern features the host cannot express, is served by the fallback endpoint rather than
+/// a mapped one, losing only its per-route policy.
 /// </remarks>
 public sealed record RenderRoute
 {
 
 	/// <summary>
-	/// Route pattern in ASP.NET template syntax, or null when it does not translate.
+	/// Route pattern as a URLPattern pathname, <c>/parks/:parkRef</c> for example, or null for a
+	/// route that has no expressible pattern.
 	/// </summary>
 	[JsonPropertyName("pattern")]
 	public string? Pattern { get; init; }

@@ -49,14 +49,15 @@ export default {
 	},
 
 	/**
-	 * The route manifest, in ASP.NET template syntax. This entry module is the one place that knows
-	 * the application's own routing, so the translation lives here and nowhere in .NET.
+	 * The route manifest, in URLPattern pathname syntax — the standard every framework's route
+	 * syntax lowers to. This entry module is the one place that knows the application's own routing,
+	 * and the host is the one place that knows its own.
 	 */
 	routes() {
 		return [
 			{ pattern: '/', renderMode: 'Server', id: 'home' },
 			{ pattern: '/about', renderMode: 'Prerender', id: 'about' },
-			{ pattern: '/parks/{parkRef}', renderMode: 'Server', id: 'park' },
+			{ pattern: '/parks/:parkRef', renderMode: 'Server', id: 'park' },
 		];
 	},
 

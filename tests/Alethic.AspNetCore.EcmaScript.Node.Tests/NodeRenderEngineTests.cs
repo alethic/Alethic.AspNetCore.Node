@@ -37,7 +37,7 @@ public class NodeRenderEngineTests
 			},
 			routes() {
 				return [
-					{ pattern: '/parks/{parkRef}', renderMode: 'Server', id: 'park' },
+					{ pattern: '/parks/:parkRef', renderMode: 'Server', id: 'park' },
 					{ pattern: '/profile', renderMode: 'Client', id: 'profile' },
 				];
 			},
@@ -128,7 +128,7 @@ public class NodeRenderEngineTests
 
 		Assert.NotNull(routes);
 		Assert.Equal(2, routes.Count);
-		Assert.Equal("/parks/{parkRef}", routes[0].Pattern);
+		Assert.Equal("/parks/:parkRef", routes[0].Pattern);
 		Assert.Equal(RenderMode.Server, routes[0].RenderMode);
 		Assert.Equal(RenderMode.Client, routes[1].RenderMode);
 	}
