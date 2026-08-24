@@ -1,5 +1,7 @@
 import { Suspense, use, useState } from 'react';
 
+import { match } from './router.jsx';
+
 /**
  * The sample's data access. On the server the promise resolves before rendering completes, so the
  * park's name lands in the markup; on the client the same component hydrates over it.
@@ -21,34 +23,46 @@ function Counter() {
 }
 
 export default function App({ path, dataPromise }) {
-	if (path.startsWith('/parks/')) {
-		return (
-			<main>
-				<Suspense fallback={<p>loading…</p>}>
-					<Park promise={dataPromise} />
-				</Suspense>
-				<Counter />
-			</main>
-		);
-	}
+	// The same table the server dispatched on and the host mapped its endpoints from.
+	const matched = match(path);
 
-	if (path === '/about') {
-		return (
-			<main>
-				<h1>About</h1>
-				<p>A sample React application rendered inside a .NET process.</p>
-				<Counter />
-			</main>
-		);
-	}
+	switch (matched?.route.id) {
+		case 'park':
+			return (
+				<main>
+					<Suspense fallback={<p>loading…</p>}>
+						<Park promise={dataPromise} />
+					</Suspense>
+					<Counter />
+				</main>
+			);
 
-	return (
-		<main>
-			<h1>Home</h1>
-			<p>Try <a href="/parks/enchanted-rock">a park</a> or <a href="/about">about</a>.</p>
-			<Counter />
-		</main>
-	);
+		case 'about':
+			return (
+				<main>
+					<h1>About</h1>
+					<p>A sample React application rendered inside a .NET process.</p>
+					<Counter />
+				</main>
+			);
+
+		case 'home':
+			return (
+				<main>
+					<h1>Home</h1>
+					<p>Try <a href="/parks/enchanted-rock">a park</a> or <a href="/about">about</a>.</p>
+					<Counter />
+				</main>
+			);
+
+		default:
+			return (
+				<main>
+					<h1>Not found</h1>
+					<p>No route matched <code>{path}</code>.</p>
+				</main>
+			);
+	}
 }
 
 /** Stands in for a real data source; the server and client both go through it. */

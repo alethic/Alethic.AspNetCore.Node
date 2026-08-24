@@ -1,6 +1,7 @@
 import { renderToPipeableStream } from 'react-dom/server';
 import { PassThrough, Readable } from 'node:stream';
 import App, { loadPark } from './App.jsx';
+import { routes, match } from './router.jsx';
 
 /**
  * Renders one request to a full document.
@@ -11,7 +12,10 @@ import App, { loadPark } from './App.jsx';
  */
 function render(url, signal) {
 	const path = url.pathname;
-	const parkRef = path.startsWith('/parks/') ? path.slice('/parks/'.length) : null;
+	const matched = match(path);
+
+	// The route decides what to load, so adding a route is one edit rather than three.
+	const parkRef = matched?.route.id === 'park' ? matched.params.parkRef : null;
 	const dataPromise = parkRef ? loadPark(parkRef) : null;
 
 	const sink = new PassThrough();
@@ -36,29 +40,31 @@ function render(url, signal) {
 
 	signal.addEventListener('abort', () => abort(signal.reason));
 
+	// The application's router decides what exists; a miss is a real 404 on the wire rather than a
+	// soft 200 with not-found copy in it.
+	const found = matched !== null && parkRef !== 'missing';
+
 	return new Response(Readable.toWeb(sink), {
-		status: parkRef === 'missing' ? 404 : 200,
+		status: found ? 200 : 404,
 		headers: { 'content-type': 'text/html; charset=utf-8' },
 	});
 }
 
 export default {
 
-	fetch(request) {
-		return render(new URL(request.url), request.signal);
-	},
-
 	/**
-	 * The route manifest, in URLPattern pathname syntax — the standard every framework's route
-	 * syntax lowers to. This entry module is the one place that knows the application's own routing,
-	 * and the host is the one place that knows its own.
+	 * The router itself, reachable by the host — not a description of it.
+	 *
+	 * No convention says this should be here or what it should be called: the convention is `fetch`,
+	 * and routes are outside it entirely. The host's route provider is written against this
+	 * application and knows where to look, which is exactly the arrangement that keeps route
+	 * knowledge in one place.
 	 */
-	routes() {
-		return [
-			{ pattern: '/', renderMode: 'Server', id: 'home' },
-			{ pattern: '/about', renderMode: 'Prerender', id: 'about' },
-			{ pattern: '/parks/:parkRef', renderMode: 'Server', id: 'park' },
-		];
+	router: routes,
+
+	/** The Web-standard handler: `fetch(request, env, ctx)`, as Workers, Deno and Bun define it. */
+	fetch(request, env, ctx) {
+		return render(new URL(request.url), request.signal);
 	},
 
 };

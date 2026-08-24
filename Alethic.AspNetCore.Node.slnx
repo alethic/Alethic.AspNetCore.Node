@@ -1,0 +1,27 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".gitattributes" />
+    <File Path=".github/workflows/Alethic.AspNetCore.Node.yml" />
+    <File Path=".gitignore" />
+    <File Path="Alethic.AspNetCore.Node.dist.msbuildproj" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="GitVersion.yml" />
+    <File Path="global.json" />
+    <File Path="icon.png" />
+    <File Path="LICENSE.txt" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Alethic.AspNetCore.Node/Alethic.AspNetCore.Node.csproj" />
+    <Project Path="src/Alethic.AspNetCore.Node.Tests/Alethic.AspNetCore.Node.Tests.csproj" />
+  </Folder>
+  <Folder Name="/src/dist/">
+    <Project Path="src/dist-nuget/dist-nuget.csproj" />
+    <Project Path="src/dist-tests/dist-tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Sample.Console/Sample.Console.csproj" />
+    <Project Path="samples/Sample.React/Server/Sample.React.Server.csproj" />
+  </Folder>
+</Solution>

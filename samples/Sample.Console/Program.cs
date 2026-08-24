@@ -1,12 +1,12 @@
-using Alethic.AspNetCore.EcmaScript.Node;
+using Alethic.AspNetCore.Node;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JavaScript.NodeApi;
 
 // The pool with no web anywhere in sight: one registration, one lease, ordinary node-api-dotnet
-// on the engine's thread. This is the same pool a rendering engine would run on — rendering is
-// just one more consumer of it.
+// on the engine's thread. This is the same pool a request handler would run on — answering HTTP
+// requests is just one more consumer of it.
 var services = new ServiceCollection();
 services.AddLogging(logging => logging.AddConsole());
 services.AddNodeEnginePool(options => options.EngineCount = 1);

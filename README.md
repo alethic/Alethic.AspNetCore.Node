@@ -1,4 +1,4 @@
-# Alethic.AspNetCore.EcmaScript
+# Alethic.AspNetCore.Node
 
 Server-side rendering for ASP.NET Core, on a real Node runtime embedded in the process through
 [node-api-dotnet](https://github.com/microsoft/node-api-dotnet). No sidecar process, no HTTP hop.
@@ -10,28 +10,31 @@ the final state of that lineage is preserved on the `wip/spa-restructure-2025-02
 
 ## The three pieces
 
-**The abstraction is HTTP request/response.** `IRenderEngine` is the whole of it: send a request,
-get a streamed response, ask for the route manifest. Nothing about JavaScript, engines, modules, or
-pools appears in it.
+**Engines run JavaScript.** `NodeEnginePool` holds several, each a libnode runtime on its own
+thread. Openly libnode, not an abstraction: registered in DI, pooled for CPU parallelism, and usable
+for any JavaScript work — a lease puts you on an engine's thread writing ordinary node-api-dotnet.
+There is one package, and it names the runtime it runs on, because that is the only runtime it runs
+on.
 
-**A rendering engine implements it.** `NodeRenderEngine` speaks the Web-standard fetch contract —
-`(Request) => Promise<Response>`, which every current SSR framework exposes or composes with — to
-the application's server bundle. The `Request` is built and the `Response` taken apart directly on
-the engine's thread, where those types live; nothing is serialized and the module evaluates
-untouched.
+**Modules are Node's.** A module is loaded with `require` and cached in `require.cache` by resolved
+filename, so it evaluates once per engine and keeps its module scope — the identity a module has in
+any other Node program. This library caches nothing of its own, and holds no per-engine state at all.
 
-**The libnode pool is a concrete facility underneath.** `NodeEnginePool` is openly libnode, not an
-abstraction: registered in DI, pooled for CPU parallelism, and usable for any JavaScript work — a
-lease puts you on an engine's thread where you write ordinary node-api-dotnet.
+**A request handler answers requests.** `INodeRequestHandler` is prepare and send, and separates
+application *protocols*, not runtimes — every implementation runs on the same engines. `FetchRequestHandler`
+calls the application's `fetch` handler, which most current SSR frameworks expose or compose with.
+The `Request` is built and the `Response` taken apart directly on the engine's thread, where those
+types live; nothing is serialized and the module evaluates untouched.
 
-| Package | Contents |
-|---|---|
-| `Alethic.AspNetCore.EcmaScript` | `IRenderEngine`, the route manifest types, and `MapRenderEngine`. |
-| `Alethic.AspNetCore.EcmaScript.Node` | `NodeEnginePool` and `NodeRenderEngine`. |
+**A route provider says what routes exist.** `INodeRouteProvider` is a separate object because
+routing is not part of the fetch convention — that convention describes a handler and says nothing
+about routes. Written against a framework, it reads the router the application already dispatches
+on, so nothing is declared twice and nothing can drift. Mounting without one serves the application
+whole from a fallback endpoint, which is the honest outcome rather than a degradation.
 
 ## Shape
 
-Two registrations — the pool, and the rendering engine on it:
+One registration — the pool. Everything else is constructed where it is mounted:
 
 ```csharp
 builder.Services.AddNodeEnginePool(o =>
@@ -39,60 +42,103 @@ builder.Services.AddNodeEnginePool(o =>
     o.EngineCount = 4;                 // must track the CPU limit; see remarks on the option
     o.MaxConcurrencyPerEngine = 4;     // backpressure, not mutual exclusion
 });
-builder.Services.AddNodeRenderEngine(o =>
-{
-    o.Module = NodeModuleSource.FromFile("ssr/server.cjs");
-});
 
 var app = builder.Build();
 app.UseStaticFiles();
 app.UseRouting();                      // explicit, or the fallback outruns static files
 
-// Prepares the engine, reads the application's own route manifest, maps an endpoint per route.
-app.MapRenderEngine();
+// Renders through the application's fetch handler, mounted on a fallback endpoint. No routes: a
+// fetch handler describes none.
+app.MapNodeFetchHandler(o => o.Module = NodeModuleSource.FromFile("ssr/server.cjs"));
 
 await app.RunAsync();
 ```
 
+The pool is the only thing worth registering: it owns the threads, and the whole application shares
+one. For an endpoint per route, pass a handler and a provider naming the same module — which is all
+the sharing they need, since Node loads it once per engine and both see that instance:
+
+```csharp
+var pool = app.Services.GetRequiredService<NodeEnginePool>();
+var source = NodeModuleSource.FromFile("ssr/server.cjs");
+
+app.MapNode(
+    new FetchRequestHandler(pool, new() { Module = source }),
+    new MyRouteProvider(pool, source));
+```
+
 ## The application contract
 
-The application's server module is a self-contained CommonJS bundle following the module-worker
-convention — the `export default { fetch }` shape shared by Cloudflare Workers, Deno, Bun, and the
-frameworks that target them. Every element is optional except `fetch`:
+The application's server module is a self-contained CommonJS bundle exporting a fetch handler - the
+shape Cloudflare Workers defines and Deno, Bun, and the framework adapters targeting them follow:
 
 ```js
 export default {
-    async init(env) { /* optional: awaited once per engine, before anything else */ },
-    fetch(request, env) { /* return a Response; sync or async */ },
-    routes() {
-        return [
-            { pattern: '/parks/:parkRef', renderMode: 'Server' },
-            { pattern: '/profile', renderMode: 'Client' },   // never touches the engine
-        ];
-    },
+    fetch(request, env, ctx) { /* return a Response; sync or async */ },
 };
 ```
 
-- **`fetch(request, env)`** — the Web-standard handler. A bare function as the default export is
-  accepted too, which is what `createRequestHandler`-style factories produce. `env` carries the
-  values the host supplies through `NodeRenderEngineOptions.Environment` — an internal API address,
-  an environment name — following the worker convention's second argument.
-- **`init(env)`** — optional, awaited once per engine before the first render. It exists because a
-  CommonJS bundle cannot top-level-await, so asynchronous startup work has no other home; a failing
-  init fails the deployment.
-- **`routes()`** — optional manifest, patterns in **URLPattern** pathname syntax (the WHATWG
-  standard), so the application never learns anything about its host. The host converts the
-  expressible subset to its own routing; a pattern beyond it is simply served by the fallback.
+- **`request`** - a real `Request`, built on the engine's thread.
+- **`env`** - what only the host knows, from `FetchRequestHandlerOptions.Environment`. Input only:
+  built fresh per request. Cloudflare puts live bindings here; this host has strings to give, which
+  the convention permits since it leaves the contents to the host.
+- **`ctx`** - `waitUntil(promise)` and `passThroughOnException()`. `waitUntil` matters on Workers
+  because the isolate is frozen after the response; a pooled engine is not, so the promise runs
+  either way and `waitUntil` only keeps its rejection from going unobserved.
+
+Two deliberate departures: a bare function default export is accepted as the handler, which Workers
+does not allow but `createRequestHandler`-style factories produce; and `scheduled`, `queue`, and
+`tail` are not called, this being an HTTP handler.
+
+Nothing else is asked. There is no init hook and no route export. Asynchronous per-engine startup is
+the application's own, memoized in module scope exactly as a Workers application memoizes
+per-isolate setup - module scope being per isolate there and per engine here.
 
 The per-framework cost of that contract:
 
 | Framework | Entry |
 |---|---|
-| Hono, Elysia, Nitro (worker preset) | `export default app` — zero glue |
+| Hono, Elysia, Nitro (worker preset) | `export default app` |
 | React Router 7 / Remix | `export default createRequestHandler(build)` — the bare function is accepted |
 | Astro | wrap `app.render(request)` in a few lines |
-| SvelteKit | `init` calls `server.init({ env })`; `fetch` calls `server.respond(request)` |
+| SvelteKit | `fetch` calls `server.respond(request)`; `server.init({ env })` memoized in module scope |
 | Angular | wrap `AngularAppEngine.handle(request)`, mapping its null to a 404 or the shell |
+
+Where a framework does not expose a fetch handler at all, the answer is another `INodeRequestHandler`
+rather than glue in the application: it mounts through the same `MapNode` and runs on the
+same engines. That is rare. Far more often the handler is fine and only the *routes* are
+framework-specific — TanStack Start, say — which needs a route provider and no handler at all.
+
+## Routes
+
+The fetch convention has no notion of routes, so nothing above produces any. An endpoint per route
+comes from an `INodeRouteProvider`, written against a framework and reading the router that framework
+already has — React Router's build manifest, TanStack Start's route tree, SvelteKit's manifest:
+
+```csharp
+public Task<IReadOnlyList<RenderRoute>> GetRoutesAsync(CancellationToken ct = default) =>
+    pool.RunAsync(module, exports =>
+    {
+        // On the engine's thread. Nothing is serialized; only plain .NET data leaves the scope.
+        var table = NodeModuleExports.Default(exports)["router"];
+        ...
+    }, ct);
+```
+
+The application is asked for nothing it would not have anyway. Routes are read from where they
+already live rather than declared a second time beside them, which is what keeps them from drifting.
+
+`RenderRoute.Pattern` is a URLPattern pathname — the WHATWG standard every framework's route grammar
+lowers to — which the host converts to an ASP.NET route template. `RenderMode` is the per-route
+policy: `Client` (shell only, the engine never invoked), `Server`, or `Prerender`. A route's `id`
+names its endpoint, so `LinkGenerator.GetPathByName` builds URLs from the router itself.
+
+An engine that provides no routes is served entirely from the fallback — the honest outcome for a
+protocol that describes none. A provider that *throws* fails the deployment, because an engine that
+cannot read the router it was written for is broken, and that must not pass for an application that
+simply has no routes.
+
+## The pool on its own
 
 The pool works with no web anywhere in sight — a lease is a claim on one engine, and inside
 `RunAsync` you are on its thread writing node-api-dotnet:
@@ -120,8 +166,9 @@ var result = await pool.RunAsync(NodeModuleSource.FromFile("tool.cjs"), async ex
 ## Samples
 
 - `samples/Sample.React` — the web path end to end: React 19 server rendering with suspended data
-  resolved into the markup, client hydration over it, and a route manifest driving the endpoint
-  table. Build the client with `npm run build` there, then `dotnet run` the server.
+  resolved into the markup, client hydration over it, and a route provider reading the application's
+  own router to drive the endpoint table. Build the client with `npm run build` there, then
+  `dotnet run` the server.
 - `samples/Sample.Console` — the pool with no web anywhere in sight: a console application takes a
   lease and drives a plain JavaScript module, synchronous calls, promises, and structured results
   alike, through ordinary node-api-dotnet.
