@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +29,25 @@ public class NodeEnginePoolTests
 		return services.BuildServiceProvider();
 	}
 
+	[TestMethod]
+	public async Task A_pending_timer_does_not_delay_closing()
+	{
+		// Applications schedule timers that outlive the work they belong to — a cache expiring, a
+		// framework releasing something after a grace period. Closing a runtime drains its loop
+		// first and waits minutes on one that will not drain, so an engine that did not let go of
+		// them would take those minutes to close, every time.
+		var services = BuildServices();
+		var pool = services.GetRequiredService<NodeEnginePool>();
+		var module = TestModules.FromText("timer.cjs", "module.exports.schedule = () => { setTimeout(() => {}, 600000); return true; };");
+
+		Assert.IsTrue(await pool.RunAsync(module, exports => Task.FromResult((bool)exports.CallMethod("schedule"))));
+
+		var watch = Stopwatch.StartNew();
+		await services.DisposeAsync();
+		watch.Stop();
+
+		Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(30), $"Closing took {watch.Elapsed}, which means the loop was drained rather than released.");
+	}
 	[TestMethod]
 	public async Task Lease_runs_javascript_on_the_engine_thread()
 	{

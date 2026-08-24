@@ -33,7 +33,83 @@ sealed class NodeEngine : IAsyncDisposable
 		"globalThis.require = require('module').createRequire(process.execPath);\n" +
 		"process.on('unhandledRejection', (reason) => {\n" +
 		"    console.error('[Alethic.AspNetCore.Node] unhandled promise rejection:', reason);\n" +
-		"});\n";
+		"});\n" +
+		TrackTimersScript;
+
+	/// <summary>
+	/// Keeps hold of the timers an application schedules, so they can be let go of on the way out.
+	/// </summary>
+	/// <remarks>
+	/// Node does not report timers among its active handles, so there is no asking it later what is
+	/// still pending: the only way to know is to have watched them being made. Hence the wrappers,
+	/// which are otherwise faithful — they return what the originals return and pass everything
+	/// through.
+	///
+	/// The bookkeeping stays bounded. A timeout drops itself when it fires, an interval when it is
+	/// cleared, so a long-running engine holds only what is genuinely still scheduled.
+	/// </remarks>
+	const string TrackTimersScript = """
+		(() => {
+			const pending = new Set();
+			const setTimeoutOriginal = globalThis.setTimeout;
+			const setIntervalOriginal = globalThis.setInterval;
+			const clearTimeoutOriginal = globalThis.clearTimeout;
+			const clearIntervalOriginal = globalThis.clearInterval;
+
+			globalThis.setTimeout = function (callback, delay, ...args) {
+				let handle;
+				const once = typeof callback === 'function'
+					? function (...called) { pending.delete(handle); return callback.apply(this, called); }
+					: callback;
+				handle = setTimeoutOriginal(once, delay, ...args);
+				if (handle && typeof handle.unref === 'function') pending.add(handle);
+				return handle;
+			};
+
+			globalThis.setInterval = function (callback, delay, ...args) {
+				const handle = setIntervalOriginal(callback, delay, ...args);
+				if (handle && typeof handle.unref === 'function') pending.add(handle);
+				return handle;
+			};
+
+			globalThis.clearTimeout = function (handle) { pending.delete(handle); return clearTimeoutOriginal(handle); };
+			globalThis.clearInterval = function (handle) { pending.delete(handle); return clearIntervalOriginal(handle); };
+
+			globalThis.__alethicRelease = function () {
+				for (const handle of pending) {
+					try {
+						handle.unref();
+					} catch {
+					}
+				}
+
+				pending.clear();
+			};
+		})();
+		""";
+
+	/// <summary>
+	/// Unreferences every handle the runtime still holds.
+	/// </summary>
+	/// <remarks>
+	/// There is no public way to enumerate what is keeping a loop alive, so this uses the internal
+	/// accessor and tolerates its absence: a runtime that does not offer it simply closes the slow
+	/// way rather than failing.
+	/// </remarks>
+	const string ReleaseScript = """
+		(() => {
+			globalThis.__alethicRelease?.();
+
+			// Sockets and the like, which Node does report.
+			const handles = typeof process._getActiveHandles === 'function' ? process._getActiveHandles() : [];
+			for (const handle of handles) {
+				try {
+					handle?.unref?.();
+				} catch {
+				}
+			}
+		})();
+		""";
 
 	readonly NodeEmbeddingThreadRuntime runtime;
 	readonly ILogger logger;
@@ -193,8 +269,37 @@ sealed class NodeEngine : IAsyncDisposable
 			return ValueTask.CompletedTask;
 
 		disposed = true;
+		Release();
 		runtime.Dispose();
 		return ValueTask.CompletedTask;
+	}
+
+	/// <summary>
+	/// Lets go of anything still holding the event loop open, so the runtime can close now.
+	/// </summary>
+	/// <remarks>
+	/// Closing a runtime drains its event loop first, and waits several minutes before giving up on
+	/// one that will not drain. Applications leave timers behind as a matter of course — a cache
+	/// scheduling its own expiry, a framework releasing a held resource after a grace period — and
+	/// each of those is written for a browser or a long-lived server, where firing minutes later is
+	/// exactly right. Here the work they would do has no observer: the responses are long since
+	/// served and the engine is being taken away. Unreferencing leaves them scheduled but stops them
+	/// counting towards the loop having work to do, which is the difference between closing at once
+	/// and closing after a wait nobody benefits from.
+	///
+	/// Best-effort by nature. It runs on the way out, so anything it fails at is no worse than not
+	/// having tried, and the close proceeds regardless.
+	/// </remarks>
+	void Release()
+	{
+		try
+		{
+			runtime.Run(() => JSValue.RunScript(ReleaseScript));
+		}
+		catch (Exception e)
+		{
+			logger.LogDebug(e, "Could not release the engine's pending work before closing it.");
+		}
 	}
 
 }
