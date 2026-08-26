@@ -36,8 +36,14 @@ namespace Alethic.AspNetCore.Node;
 /// A framework whose server protocol does not lower to a fetch handler gets its own handler
 /// instead. Reading routes needs no handler of its own: pair an <see cref="INodeRouteProvider"/>
 /// with this one.
+///
+/// Open to derivation, for the specialization that is a variation on this handler rather than a
+/// protocol of its own: a host with something to add to the request, or to say about the response,
+/// overrides <see cref="SendAsync"/> and calls back. A handler speaking some other protocol
+/// implements <see cref="INodeRequestHandler"/> directly instead — that is the seam for a different
+/// conversation with the application, where this is the seam for the same one held differently.
 /// </remarks>
-public sealed class FetchRequestHandler : INodeRequestHandler
+public class FetchRequestHandler : INodeRequestHandler
 {
 
 	/// <summary>
@@ -96,7 +102,7 @@ public sealed class FetchRequestHandler : INodeRequestHandler
 	/// loop — happens at startup rather than under whichever request arrives first. A module that
 	/// cannot be loaded fails here, and with it the deployment.
 	/// </remarks>
-	public Task PrepareAsync(CancellationToken cancellationToken = default) =>
+	public virtual Task PrepareAsync(CancellationToken cancellationToken = default) =>
 		pool.PrepareAsync(lease => lease.ImportAsync(module, cancellationToken), cancellationToken);
 
 	/// <summary>
@@ -112,7 +118,7 @@ public sealed class FetchRequestHandler : INodeRequestHandler
 	}
 
 	/// <inheritdoc />
-	public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
+	public virtual async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(request);
 
