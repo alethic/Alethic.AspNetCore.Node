@@ -25,29 +25,29 @@ namespace Alethic.AspNetCore.Node;
 public interface INodeRequestHandler
 {
 
-	/// <summary>
-	/// Brings the handler to readiness ahead of traffic.
-	/// </summary>
-	/// <remarks>
-	/// Called before endpoints are mapped, so whatever startup cost the implementation carries lands
-	/// here rather than under the first request — and so a broken application fails the deployment
-	/// rather than quietly serving nothing.
-	/// </remarks>
-	/// <param name="cancellationToken"></param>
-	Task PrepareAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Brings the handler to readiness ahead of traffic.
+    /// </summary>
+    /// <remarks>
+    /// Called before endpoints are mapped, so whatever startup cost the implementation carries lands
+    /// here rather than under the first request — and so a broken application fails the deployment
+    /// rather than quietly serving nothing.
+    /// </remarks>
+    /// <param name="cancellationToken"></param>
+    Task PrepareAsync(CancellationToken cancellationToken = default);
 
-	/// <summary>
-	/// Answers one request.
-	/// </summary>
-	/// <remarks>
-	/// The response streams: it is returned as soon as its status and headers are known, and its
-	/// content continues to arrive afterwards, so a caller wanting the whole body reads it to the
-	/// end. A failure after the first byte can truncate the body but not change the status.
-	/// Cancellation aborts the work itself, not merely the wait for it, and whatever that work holds
-	/// is released when the response is disposed.
-	/// </remarks>
-	/// <param name="request"></param>
-	/// <param name="cancellationToken"></param>
-	Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Answers one request.
+    /// </summary>
+    /// <remarks>
+    /// The response streams: it is returned as soon as its status and headers are known, and its
+    /// content continues to arrive afterwards, so a caller wanting the whole body reads it to the
+    /// end. A failure after the first byte can truncate the body but not change the status.
+    /// Cancellation aborts the work itself, not merely the wait for it, and whatever that work holds
+    /// is released when the response is disposed.
+    /// </remarks>
+    /// <param name="request"></param>
+    /// <param name="cancellationToken"></param>
+    Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default);
 
 }

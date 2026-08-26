@@ -1,32 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-	<PropertyGroup>
-		<TargetFrameworks>net8.0;net9.0</TargetFrameworks>
-		<Description>Server-side rendering for ASP.NET Core on a Node runtime embedded in the process through node-api-dotnet: the pooled Node engines, the rendering engine over the application's fetch export, and endpoint mapping driven by the application's own route manifest.</Description>
-		<PackageReadmeFile>README.md</PackageReadmeFile>
-		<PackageIcon>icon.png</PackageIcon>
-		<PackageTags>aspnetcore;javascript;node;libnode;ssr;render</PackageTags>
-	</PropertyGroup>
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+        <Description>Server-side rendering for ASP.NET Core on a Node runtime embedded in the process through node-api-dotnet: the pooled Node engines, the rendering engine over the application's fetch export, and endpoint mapping driven by the application's own route manifest.</Description>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageIcon>icon.png</PackageIcon>
+        <PackageTags>aspnetcore;javascript;node;libnode;ssr;render</PackageTags>
+    </PropertyGroup>
 
-	<ItemGroup>
-		<None Include="README.md" Pack="true" PackagePath="\" />
-		<None Include="..\..\icon.png" Pack="true" PackagePath="\" />
-	</ItemGroup>
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\" />
+        <None Include="..\..\icon.png" Pack="true" PackagePath="\" />
+    </ItemGroup>
 
-	<ItemGroup>
-		<InternalsVisibleTo Include="Alethic.AspNetCore.Node.Tests" />
-	</ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="Alethic.AspNetCore.Node.Tests" />
+    </ItemGroup>
 
-	<ItemGroup>
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
-		<PackageReference Include="Microsoft.JavaScript.NodeApi" Version="0.9.26" />
-		<PackageReference Include="System.IO.Pipelines" Version="9.0.0" />
-	</ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+        <PackageReference Include="Microsoft.JavaScript.NodeApi" Version="0.9.26" />
+        <PackageReference Include="System.IO.Pipelines" Version="9.0.0" />
+    </ItemGroup>
 
-	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App" />
-	</ItemGroup>
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
 
 </Project>

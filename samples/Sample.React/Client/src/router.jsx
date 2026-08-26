@@ -11,9 +11,9 @@
  * host's RenderMode; the application itself knows nothing about that type.
  */
 export const routes = [
-	{ id: 'home', path: '/', render: 'server' },
-	{ id: 'about', path: '/about', render: 'prerender' },
-	{ id: 'park', path: '/parks/:parkRef', render: 'server' },
+    { id: 'home', path: '/', render: 'server' },
+    { id: 'about', path: '/about', render: 'prerender' },
+    { id: 'park', path: '/parks/:parkRef', render: 'server' },
 ];
 
 /**
@@ -23,28 +23,28 @@ export const routes = [
  * sample is that this is the matcher the application actually dispatches with.
  */
 export function match(pathname) {
-	const parts = pathname.split('/').filter(Boolean);
+    const parts = pathname.split('/').filter(Boolean);
 
-	for (const route of routes) {
-		const segments = route.path.split('/').filter(Boolean);
-		if (segments.length !== parts.length)
-			continue;
+    for (const route of routes) {
+        const segments = route.path.split('/').filter(Boolean);
+        if (segments.length !== parts.length)
+            continue;
 
-		const params = {};
-		let matched = true;
+        const params = {};
+        let matched = true;
 
-		for (let i = 0; i < segments.length; i++) {
-			if (segments[i].startsWith(':'))
-				params[segments[i].slice(1)] = decodeURIComponent(parts[i]);
-			else if (segments[i] !== parts[i]) {
-				matched = false;
-				break;
-			}
-		}
+        for (let i = 0; i < segments.length; i++) {
+            if (segments[i].startsWith(':'))
+                params[segments[i].slice(1)] = decodeURIComponent(parts[i]);
+            else if (segments[i] !== parts[i]) {
+                matched = false;
+                break;
+            }
+        }
 
-		if (matched)
-			return { route, params };
-	}
+        if (matched)
+            return { route, params };
+    }
 
-	return null;
+    return null;
 }

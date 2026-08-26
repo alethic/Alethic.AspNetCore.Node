@@ -18,19 +18,19 @@ var module = NodeModuleSource.FromFile(Path.Combine(AppContext.BaseDirectory, "t
 
 // Synchronous export: call it, take the primitive result out.
 var slug = await pool.RunAsync(module, exports =>
-	Task.FromResult((string)exports.CallMethod("slugify", "Enchanted Rock State Natural Area")));
+    Task.FromResult((string)exports.CallMethod("slugify", "Enchanted Rock State Natural Area")));
 
 // Asynchronous export: the promise is awaited on the engine's thread, where it lives.
 var digest = await pool.RunAsync(module, async exports =>
-	(string)await ((JSPromise)exports.CallMethod("digest", "enchanted rock")).AsTask());
+    (string)await ((JSPromise)exports.CallMethod("digest", "enchanted rock")).AsTask());
 
 // Structured result: read the properties off while still on the engine's thread, return plain .NET.
 // Each one-shot may land on a different engine; a lease (pool.AcquireAsync) pins one when several
 // steps must share per-engine state.
 var (characters, words) = await pool.RunAsync(module, exports =>
 {
-	var stats = exports.CallMethod("stats", "The quick brown fox jumps over the lazy dog");
-	return Task.FromResult(((int)stats["characters"], (int)stats["words"]));
+    var stats = exports.CallMethod("stats", "The quick brown fox jumps over the lazy dog");
+    return Task.FromResult(((int)stats["characters"], (int)stats["words"]));
 });
 
 Console.WriteLine($"slugify : {slug}");

@@ -14,20 +14,20 @@ namespace Alethic.AspNetCore.Node;
 public sealed record RenderRoute
 {
 
-	/// <summary>
-	/// Route pattern as a URLPattern pathname, <c>/parks/:parkRef</c> for example, or null for a
-	/// route that has no expressible pattern.
-	/// </summary>
-	public string? Pattern { get; init; }
+    /// <summary>
+    /// Route pattern as a URLPattern pathname, <c>/parks/:parkRef</c> for example, or null for a
+    /// route that has no expressible pattern.
+    /// </summary>
+    public string? Pattern { get; init; }
 
-	/// <summary>
-	/// How the route expects to be rendered.
-	/// </summary>
-	public RenderMode RenderMode { get; init; } = RenderMode.Server;
+    /// <summary>
+    /// How the route expects to be rendered.
+    /// </summary>
+    public RenderMode RenderMode { get; init; } = RenderMode.Server;
 
-	/// <summary>
-	/// Optional identifier, for diagnostics and for correlating with the application's own routing.
-	/// </summary>
-	public string? Id { get; init; }
+    /// <summary>
+    /// Optional identifier, for diagnostics and for correlating with the application's own routing.
+    /// </summary>
+    public string? Id { get; init; }
 
 }

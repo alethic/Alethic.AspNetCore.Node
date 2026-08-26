@@ -7,8 +7,8 @@ var builder = WebApplication.CreateBuilder(args);
 // The one registration: the libnode pool. Everything else is constructed where it is mounted.
 builder.Services.AddNodeEnginePool(o =>
 {
-	o.EngineCount = 2;
-	o.MaxConcurrencyPerEngine = 4;
+    o.EngineCount = 2;
+    o.MaxConcurrencyPerEngine = 4;
 });
 
 var app = builder.Build();
@@ -35,14 +35,14 @@ var mounted = new List<RenderRoute>();
 
 app.MapNode(handler, new SampleRouteProvider(pool, source), new MapNodeOptions()
 {
-	ConfigureEndpoint = (route, _) =>
-	{
-		if (route is not null)
-			mounted.Add(route);
-	},
+    ConfigureEndpoint = (route, _) =>
+    {
+        if (route is not null)
+            mounted.Add(route);
+    },
 });
 
 app.Logger.LogInformation("Mounted {Count} routes read from the application's router: {Ids}.",
-	mounted.Count, string.Join(", ", mounted.Select(r => r.Id)));
+    mounted.Count, string.Join(", ", mounted.Select(r => r.Id)));
 
 await app.RunAsync();

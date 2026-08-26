@@ -15,44 +15,44 @@ namespace Alethic.AspNetCore.Node;
 static class NodeRuntimeHost
 {
 
-	static readonly object sync = new();
+    static readonly object sync = new();
 
-	static NodeEmbeddingPlatform? platform;
-	static string? loadedFrom;
+    static NodeEmbeddingPlatform? platform;
+    static string? loadedFrom;
 
-	/// <summary>
-	/// Returns the process-wide platform, creating it from the given library on first use.
-	/// </summary>
-	/// <param name="libNodePath"></param>
-	/// <exception cref="InvalidOperationException"></exception>
-	public static NodeEmbeddingPlatform GetOrCreate(string libNodePath)
-	{
-		if (platform is not null)
-			return Verify(libNodePath);
+    /// <summary>
+    /// Returns the process-wide platform, creating it from the given library on first use.
+    /// </summary>
+    /// <param name="libNodePath"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    public static NodeEmbeddingPlatform GetOrCreate(string libNodePath)
+    {
+        if (platform is not null)
+            return Verify(libNodePath);
 
-		lock (sync)
-		{
-			if (platform is not null)
-				return Verify(libNodePath);
+        lock (sync)
+        {
+            if (platform is not null)
+                return Verify(libNodePath);
 
-			platform = new NodeEmbeddingPlatform(new NodeEmbeddingPlatformSettings() { LibNodePath = libNodePath });
-			loadedFrom = libNodePath;
-			return platform;
-		}
-	}
+            platform = new NodeEmbeddingPlatform(new NodeEmbeddingPlatformSettings() { LibNodePath = libNodePath });
+            loadedFrom = libNodePath;
+            return platform;
+        }
+    }
 
-	/// <summary>
-	/// Confirms a second caller is asking for the library already loaded.
-	/// </summary>
-	/// <param name="libNodePath"></param>
-	/// <exception cref="InvalidOperationException"></exception>
-	static NodeEmbeddingPlatform Verify(string libNodePath)
-	{
-		if (string.Equals(loadedFrom, libNodePath, StringComparison.OrdinalIgnoreCase) == false)
-			throw new InvalidOperationException(
-				$"A Node runtime is already loaded from '{loadedFrom}'. Only one may be loaded per process, so '{libNodePath}' cannot also be used.");
+    /// <summary>
+    /// Confirms a second caller is asking for the library already loaded.
+    /// </summary>
+    /// <param name="libNodePath"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    static NodeEmbeddingPlatform Verify(string libNodePath)
+    {
+        if (string.Equals(loadedFrom, libNodePath, StringComparison.OrdinalIgnoreCase) == false)
+            throw new InvalidOperationException(
+                $"A Node runtime is already loaded from '{loadedFrom}'. Only one may be loaded per process, so '{libNodePath}' cannot also be used.");
 
-		return platform!;
-	}
+        return platform!;
+    }
 
 }
