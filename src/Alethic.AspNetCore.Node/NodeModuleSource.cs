@@ -20,46 +20,46 @@ namespace Alethic.AspNetCore.Node;
 public abstract class NodeModuleSource
 {
 
-	/// <summary>
-	/// A module on disk.
-	/// </summary>
-	/// <param name="path"></param>
-	public static NodeModuleSource FromFile(string path) => new FileSource(path);
+    /// <summary>
+    /// A module on disk.
+    /// </summary>
+    /// <param name="path"></param>
+    public static NodeModuleSource FromFile(string path) => new FileSource(path);
 
-	/// <summary>
-	/// Name reported in stack traces.
-	/// </summary>
-	public abstract string Name { get; }
+    /// <summary>
+    /// Name reported in stack traces.
+    /// </summary>
+    public abstract string Name { get; }
 
-	/// <summary>
-	/// The absolute path Node loads this module from.
-	/// </summary>
-	/// <param name="cancellationToken"></param>
-	public abstract ValueTask<string> ResolveAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// The absolute path Node loads this module from.
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    public abstract ValueTask<string> ResolveAsync(CancellationToken cancellationToken);
 
-	/// <inheritdoc />
-	public override string ToString() => Name;
+    /// <inheritdoc />
+    public override string ToString() => Name;
 
-	sealed class FileSource : NodeModuleSource
-	{
+    sealed class FileSource : NodeModuleSource
+    {
 
-		readonly string path;
+        readonly string path;
 
-		public FileSource(string path)
-		{
-			this.path = Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path)));
-		}
+        public FileSource(string path)
+        {
+            this.path = Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path)));
+        }
 
-		public override string Name => Path.GetFileName(path);
+        public override string Name => Path.GetFileName(path);
 
-		public override ValueTask<string> ResolveAsync(CancellationToken cancellationToken)
-		{
-			if (File.Exists(path) == false)
-				throw new FileNotFoundException($"No module at '{path}'.", path);
+        public override ValueTask<string> ResolveAsync(CancellationToken cancellationToken)
+        {
+            if (File.Exists(path) == false)
+                throw new FileNotFoundException($"No module at '{path}'.", path);
 
-			return new(path);
-		}
+            return new(path);
+        }
 
-	}
+    }
 
 }

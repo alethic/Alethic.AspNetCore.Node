@@ -25,18 +25,18 @@ namespace Alethic.AspNetCore.Node;
 public interface INodeRouteProvider
 {
 
-	/// <summary>
-	/// The routes the application serves.
-	/// </summary>
-	/// <remarks>
-	/// Answered after <see cref="INodeRequestHandler.PrepareAsync"/>, so the application is
-	/// initialized and its router built by the time it is asked.
-	///
-	/// An application with genuinely no routes answers an empty list. Failure to read the router is
-	/// an exception and fails the deployment — a broken extraction is a bug, not an absence, and the
-	/// two must not look alike.
-	/// </remarks>
-	/// <param name="cancellationToken"></param>
-	Task<IReadOnlyList<RenderRoute>> GetRoutesAsync(CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The routes the application serves.
+    /// </summary>
+    /// <remarks>
+    /// Answered after <see cref="INodeRequestHandler.PrepareAsync"/>, so the application is
+    /// initialized and its router built by the time it is asked.
+    ///
+    /// An application with genuinely no routes answers an empty list. Failure to read the router is
+    /// an exception and fails the deployment — a broken extraction is a bug, not an absence, and the
+    /// two must not look alike.
+    /// </remarks>
+    /// <param name="cancellationToken"></param>
+    Task<IReadOnlyList<RenderRoute>> GetRoutesAsync(CancellationToken cancellationToken = default);
 
 }

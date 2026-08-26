@@ -17,80 +17,80 @@ namespace Alethic.AspNetCore.Node;
 static class UrlPatternConverter
 {
 
-	/// <summary>
-	/// Converts a URLPattern pathname to an ASP.NET route template, or null where it does not
-	/// translate.
-	/// </summary>
-	/// <param name="pattern"></param>
-	public static string? ToRouteTemplate(string pattern)
-	{
-		ArgumentNullException.ThrowIfNull(pattern);
+    /// <summary>
+    /// Converts a URLPattern pathname to an ASP.NET route template, or null where it does not
+    /// translate.
+    /// </summary>
+    /// <param name="pattern"></param>
+    public static string? ToRouteTemplate(string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
 
-		if (pattern.Length == 0 || pattern[0] != '/')
-			return null;
+        if (pattern.Length == 0 || pattern[0] != '/')
+            return null;
 
-		if (pattern == "/")
-			return "/";
+        if (pattern == "/")
+            return "/";
 
-		var segments = pattern.Substring(1).Split('/');
-		var converted = new string[segments.Length];
+        var segments = pattern.Substring(1).Split('/');
+        var converted = new string[segments.Length];
 
-		for (var i = 0; i < segments.Length; i++)
-		{
-			var segment = segments[i];
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var segment = segments[i];
 
-			// A bare wildcard swallows the rest of the path, so it only translates in final position.
-			if (segment == "*")
-			{
-				if (i != segments.Length - 1)
-					return null;
+            // A bare wildcard swallows the rest of the path, so it only translates in final position.
+            if (segment == "*")
+            {
+                if (i != segments.Length - 1)
+                    return null;
 
-				converted[i] = "{**rest}";
-				continue;
-			}
+                converted[i] = "{**rest}";
+                continue;
+            }
 
-			if (segment.Length > 1 && segment[0] == ':')
-			{
-				var name = segment.Substring(1);
-				var optional = name.EndsWith('?');
-				if (optional)
-					name = name.Substring(0, name.Length - 1);
+            if (segment.Length > 1 && segment[0] == ':')
+            {
+                var name = segment.Substring(1);
+                var optional = name.EndsWith('?');
+                if (optional)
+                    name = name.Substring(0, name.Length - 1);
 
-				if (IsName(name) == false)
-					return null;
+                if (IsName(name) == false)
+                    return null;
 
-				converted[i] = optional ? "{" + name + "?}" : "{" + name + "}";
-				continue;
-			}
+                converted[i] = optional ? "{" + name + "?}" : "{" + name + "}";
+                continue;
+            }
 
-			// A literal segment, if it really is one: anything URLPattern treats as syntax means the
-			// pattern uses a construct the template cannot carry.
-			if (segment.AsSpan().IndexOfAny(":*?(){}[]\\+") >= 0)
-				return null;
+            // A literal segment, if it really is one: anything URLPattern treats as syntax means the
+            // pattern uses a construct the template cannot carry.
+            if (segment.AsSpan().IndexOfAny(":*?(){}[]\\+") >= 0)
+                return null;
 
-			converted[i] = segment;
-		}
+            converted[i] = segment;
+        }
 
-		return "/" + string.Join('/', converted);
-	}
+        return "/" + string.Join('/', converted);
+    }
 
-	/// <summary>
-	/// True when the text is a well-formed parameter name.
-	/// </summary>
-	/// <param name="name"></param>
-	static bool IsName(string name)
-	{
-		if (name.Length == 0)
-			return false;
+    /// <summary>
+    /// True when the text is a well-formed parameter name.
+    /// </summary>
+    /// <param name="name"></param>
+    static bool IsName(string name)
+    {
+        if (name.Length == 0)
+            return false;
 
-		if (char.IsLetter(name[0]) == false && name[0] != '_')
-			return false;
+        if (char.IsLetter(name[0]) == false && name[0] != '_')
+            return false;
 
-		foreach (var c in name)
-			if (char.IsLetterOrDigit(c) == false && c != '_')
-				return false;
+        foreach (var c in name)
+            if (char.IsLetterOrDigit(c) == false && c != '_')
+                return false;
 
-		return true;
-	}
+        return true;
+    }
 
 }
