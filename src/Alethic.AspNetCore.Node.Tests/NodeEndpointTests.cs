@@ -48,6 +48,26 @@ public class NodeEndpointTests
 		""";
 
 	/// <summary>
+	/// An application that reports back what the host told it about its own address.
+	/// </summary>
+	const string EchoModule = """
+		module.exports.default = {
+			fetch(request) {
+				const saw = n => request.headers.get(n) ?? '(absent)';
+				return new Response('ok', {
+					status: 200,
+					headers: {
+						'x-saw-proto': saw('x-forwarded-proto'),
+						'x-saw-host': saw('x-forwarded-host'),
+						'x-saw-prefix': saw('x-forwarded-prefix'),
+						'x-saw-url': request.url,
+					},
+				});
+			},
+		};
+		""";
+
+	/// <summary>
 	/// An application with no router at all.
 	/// </summary>
 	const string BareModule = """
@@ -64,13 +84,23 @@ public class NodeEndpointTests
 	/// </summary>
 	/// <param name="module"></param>
 	/// <param name="configure"></param>
-	static async Task<(WebApplication App, HttpClient Client, IReadOnlyList<RenderRoute> Routes)> StartAsync(string module, Action<MapNodeOptions>? configure = null)
+	/// <param name="pathBase"></param>
+	static async Task<(WebApplication App, HttpClient Client, IReadOnlyList<RenderRoute> Routes)> StartAsync(string module, Action<MapNodeOptions>? configure = null, string? pathBase = null)
 	{
 		var builder = WebApplication.CreateBuilder();
 		builder.WebHost.UseTestServer();
 		builder.Services.AddNodeEnginePool();
 
 		var app = builder.Build();
+
+		// Ahead of routing, which therefore has to be asked for: minimal hosting otherwise inserts
+		// routing before every middleware, and the prefix would still be on the path when a route is
+		// matched.
+		if (pathBase is not null)
+		{
+			app.UsePathBase(pathBase);
+			app.UseRouting();
+		}
 
 		// A stand-in for "whatever already serves the shell": client-mode routes must land here, not
 		// on the engine.
@@ -213,6 +243,56 @@ public class NodeEndpointTests
 		// the application is simply served whole from the fallback.
 		Assert.AreEqual(0, routes.Count);
 		Assert.AreEqual("bare", await client.GetStringAsync("/whatever"));
+	}
+
+	[TestMethod]
+	public async Task Application_is_told_the_address_the_caller_used()
+	{
+		var (app, client, _) = await StartAsync(EchoModule);
+		await using var _1 = app;
+
+		var response = await client.GetAsync("/anything");
+
+		Assert.AreEqual("http", response.Headers.GetValues("x-saw-proto").Single());
+		Assert.AreEqual("localhost", response.Headers.GetValues("x-saw-host").Single());
+
+		// Absent rather than empty at the root, which is what a proxy rewriting no prefix sends.
+		Assert.AreEqual("(absent)", response.Headers.GetValues("x-saw-prefix").Single());
+	}
+
+	[TestMethod]
+	public async Task Application_is_told_where_it_is_mounted()
+	{
+		var (app, client, _) = await StartAsync(EchoModule, pathBase: "/store");
+		await using var _1 = app;
+
+		var response = await client.GetAsync("/store/cart");
+
+		Assert.AreEqual("/store", response.Headers.GetValues("x-saw-prefix").Single());
+
+		// The URL carries the prefix as well, merged into the path with nothing marking where it
+		// ends — which is the whole reason the boundary has to be stated separately.
+		Assert.AreEqual("http://localhost/store/cart", response.Headers.GetValues("x-saw-url").Single());
+	}
+
+	[TestMethod]
+	public async Task A_caller_cannot_state_the_mount_itself()
+	{
+		var (app, client, _) = await StartAsync(EchoModule);
+		await using var _1 = app;
+
+		var request = new HttpRequestMessage(HttpMethod.Get, "/anything");
+		request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+		request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "elsewhere.example");
+		request.Headers.TryAddWithoutValidation("X-Forwarded-Prefix", "/elsewhere");
+
+		var response = await client.SendAsync(request);
+
+		// Every header on the request is copied onward, so what a caller sends under these names
+		// would otherwise reach the application as though this host had said it.
+		Assert.AreEqual("http", response.Headers.GetValues("x-saw-proto").Single());
+		Assert.AreEqual("localhost", response.Headers.GetValues("x-saw-host").Single());
+		Assert.AreEqual("(absent)", response.Headers.GetValues("x-saw-prefix").Single());
 	}
 
 	[TestMethod]

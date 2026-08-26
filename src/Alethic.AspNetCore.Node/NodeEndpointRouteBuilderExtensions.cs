@@ -231,8 +231,25 @@ public static class NodeEndpointRouteBuilderExtensions
 	}
 
 	/// <summary>
+	/// Headers describing where the application is mounted, which this host states from the request
+	/// it resolved rather than passing on whatever arrived under those names.
+	/// </summary>
+	static readonly string[] MountHeaders = ["X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-Prefix"];
+
+	/// <summary>
 	/// Rebuilds the incoming request in the shape the engine expects.
 	/// </summary>
+	/// <remarks>
+	/// The application behind this is an origin server, and this is what stands in front of it, so it
+	/// is told where it is mounted the way an origin server behind a proxy is told: the scheme and
+	/// authority the caller used, and the prefix the path is served under.
+	///
+	/// Two of those are in the URL as well, and are taken from the same place, so the two accounts
+	/// cannot come to disagree. The prefix is the one that is not: a path base is merged into the
+	/// path with nothing to mark where it ends, leaving <c>/store/cart</c> mounted at <c>/store</c>
+	/// indistinguishable from <c>/store/cart</c> mounted at the root. Only this side of the call
+	/// knows the difference, so only this side can say.
+	/// </remarks>
 	/// <param name="context"></param>
 	static HttpRequestMessage BuildRequest(HttpContext context)
 	{
@@ -248,9 +265,25 @@ public static class NodeEndpointRouteBuilderExtensions
 			if (string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase))
 				continue;
 
+			// Stated below instead. Passing the arriving value on would let a caller describe the
+			// mount to the application and have it read as though this host had said so — and every
+			// header here is copied onward, so not copying it is what prevents that.
+			if (MountHeaders.Contains(header.Key, StringComparer.OrdinalIgnoreCase))
+				continue;
+
 			if (request.Headers.TryAddWithoutValidation(header.Key, (string?[])header.Value) == false)
 				request.Content?.Headers.TryAddWithoutValidation(header.Key, (string?[])header.Value);
 		}
+
+		request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", context.Request.Scheme);
+
+		if (context.Request.Host.HasValue)
+			request.Headers.TryAddWithoutValidation("X-Forwarded-Host", context.Request.Host.Value);
+
+		// Absent rather than empty at the root, which is what a proxy rewriting no prefix sends, and
+		// which leaves an application's own default as the answer rather than a case to handle.
+		if (context.Request.PathBase.HasValue)
+			request.Headers.TryAddWithoutValidation("X-Forwarded-Prefix", context.Request.PathBase.Value);
 
 		return request;
 	}
