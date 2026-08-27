@@ -240,20 +240,40 @@ public static class NodeEndpointRouteBuilderExtensions
     /// Rebuilds the incoming request in the shape the engine expects.
     /// </summary>
     /// <remarks>
-    /// The application behind this is an origin server, and this is what stands in front of it, so it
-    /// is told where it is mounted the way an origin server behind a proxy is told: the scheme and
-    /// authority the caller used, and the prefix the path is served under.
+    /// The application behind this is an origin server and this is what stands in front of it, so it
+    /// is addressed the way an origin server behind a proxy is addressed: the path it is asked for is
+    /// the one below its mount, and where that mount is arrives in <c>X-Forwarded-Prefix</c>.
     ///
-    /// Two of those are in the URL as well, and are taken from the same place, so the two accounts
-    /// cannot come to disagree. The prefix is the one that is not: a path base is merged into the
-    /// path with nothing to mark where it ends, leaving <c>/store/cart</c> mounted at <c>/store</c>
-    /// indistinguishable from <c>/store/cart</c> mounted at the root. Only this side of the call
-    /// knows the difference, so only this side can say.
+    /// The application knows nothing of where it is mounted, and that is the point. Handing it the
+    /// mounted path would require the very knowledge it does not have — <c>/store/cart</c> under
+    /// <c>/store</c> is indistinguishable from <c>/store/cart</c> at the root — so it could only
+    /// match the mount as a route and miss. Given the path below the mount it simply routes, as it
+    /// believes itself to be at the root; only an application generating absolute URLs reads the
+    /// prefix, and it is told rather than configured.
+    ///
+    /// Which is also why the prefix must not be left in the path as well. <c>X-Forwarded-Prefix</c>
+    /// means "removed, and this is what it was" — it is what Traefik emits when it strips, what
+    /// Spring's forwarded-header filter reads, and how ASP.NET's own handling treats it inbound.
+    /// Sending it while leaving the prefix in place would have anything that understands the header
+    /// count the mount twice.
+    ///
+    /// The scheme and authority stay in the URL, resolved from whatever arrived, and are repeated in
+    /// <c>X-Forwarded-Proto</c> and <c>X-Forwarded-Host</c> for an application written to read them.
+    /// Those two are conventional rather than load-bearing; the prefix is the one carrying something
+    /// the URL cannot.
     /// </remarks>
     /// <param name="context"></param>
     static HttpRequestMessage BuildRequest(HttpContext context)
     {
-        var request = new HttpRequestMessage(new HttpMethod(context.Request.Method), context.Request.GetEncodedUrl());
+        // Deliberately not GetEncodedUrl(), which merges the path base back into the path.
+        var uri = UriHelper.BuildAbsolute(
+            context.Request.Scheme,
+            context.Request.Host,
+            PathString.Empty,
+            context.Request.Path,
+            context.Request.QueryString);
+
+        var request = new HttpRequestMessage(new HttpMethod(context.Request.Method), uri);
 
         if (context.Request.ContentLength > 0 || context.Request.Headers.TransferEncoding.Count > 0)
             request.Content = new StreamContent(context.Request.Body);
