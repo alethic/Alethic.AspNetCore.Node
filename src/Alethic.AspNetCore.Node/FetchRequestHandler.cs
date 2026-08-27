@@ -71,6 +71,8 @@ public class FetchRequestHandler : INodeRequestHandler
     readonly NodeEnginePool pool;
     readonly NodeModuleSource module;
     readonly Uri baseUri;
+    readonly BodyMode requestBody;
+    readonly BodyMode responseBody;
     readonly Dictionary<string, string> environment;
     readonly ILogger logger;
 
@@ -97,6 +99,8 @@ public class FetchRequestHandler : INodeRequestHandler
 
         module = options.Module ?? throw new ArgumentException("A handler needs a module.", nameof(options));
         baseUri = options.BaseUri ?? throw new ArgumentException("A handler needs a base address.", nameof(options));
+        requestBody = options.RequestBody;
+        responseBody = options.ResponseBody;
         environment = new Dictionary<string, string>(options.Environment);
     }
 
@@ -155,12 +159,19 @@ public class FetchRequestHandler : INodeRequestHandler
         var method = context.Request.Method;
         var headers = CollectHeaders(context);
 
-        byte[]? body = null;
-        if (context.Request.ContentLength > 0 || context.Request.Headers.TransferEncoding.Count > 0)
+        // The stream itself, not its contents: the application reads it as it needs it, so an upload
+        // is never held in memory here on its way through. Buffered, it is drained first — here,
+        // where waiting on a socket costs nothing, rather than on the engine's thread.
+        Stream? body = context.Request.ContentLength > 0 || context.Request.Headers.TransferEncoding.Count > 0
+            ? context.Request.Body
+            : null;
+
+        if (body is not null && requestBody == BodyMode.Buffered)
         {
-            using var buffer = new MemoryStream();
-            await context.Request.Body.CopyToAsync(buffer, cancellationToken);
-            body = buffer.ToArray();
+            var buffered = new MemoryStream();
+            await body.CopyToAsync(buffered, cancellationToken);
+            buffered.Position = 0;
+            body = buffered;
         }
 
         var lease = await pool.AcquireAsync(cancellationToken);
@@ -181,19 +192,26 @@ public class FetchRequestHandler : INodeRequestHandler
 
             var headValue = await head.Task;
 
-            context.Response.StatusCode = headValue.Status;
-
-            foreach (var (name, value) in headValue.Headers)
+            if (responseBody == BodyMode.Buffered)
             {
-                // The body arrives as a stream of unknown length and the server frames it itself; a
-                // length or transfer coding from the application would claim otherwise.
-                if (FramingHeaders.Contains(name, StringComparer.OrdinalIgnoreCase))
-                    continue;
+                // Drained as it is produced — not left unread, which would stall the render against
+                // the pipe's own backpressure — but written nowhere yet. A fault reaches this as an
+                // exception out of the copy, with the response still unstarted and the status still
+                // the host's to decide.
+                using var buffered = new MemoryStream();
+                await CopyAsync(pipe.Reader, buffered, cancellationToken);
 
-                context.Response.Headers.Append(name, value);
+                WriteHead(context, headValue);
+                context.Response.ContentLength = buffered.Length;
+
+                buffered.Position = 0;
+                await buffered.CopyToAsync(context.Response.Body, cancellationToken);
             }
-
-            await CopyAsync(pipe.Reader, context.Response.Body, cancellationToken);
+            else
+            {
+                WriteHead(context, headValue);
+                await CopyAsync(pipe.Reader, context.Response.Body, cancellationToken);
+            }
         }
         finally
         {
@@ -215,6 +233,28 @@ public class FetchRequestHandler : INodeRequestHandler
             }
 
             await lease.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Writes the status and headers the application answered with.
+    /// </summary>
+    /// <remarks>
+    /// The framing headers are dropped: the body's length and coding are the server's to state, and
+    /// what the application said about them described its own stream rather than this one.
+    /// </remarks>
+    /// <param name="context"></param>
+    /// <param name="head"></param>
+    static void WriteHead(HttpContext context, ResponseHead head)
+    {
+        context.Response.StatusCode = head.Status;
+
+        foreach (var (name, value) in head.Headers)
+        {
+            if (FramingHeaders.Contains(name, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            context.Response.Headers.Append(name, value);
         }
     }
 
@@ -265,7 +305,7 @@ public class FetchRequestHandler : INodeRequestHandler
     /// <param name="writer"></param>
     /// <param name="head"></param>
     /// <param name="cancellationToken"></param>
-    async Task PumpAsync(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, byte[]? body, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
+    async Task PumpAsync(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, Stream? body, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
     {
         try
         {
@@ -283,7 +323,7 @@ public class FetchRequestHandler : INodeRequestHandler
                 using var registration = cancellationToken.Register(() => lease.TryPost(
                     () => controllerRef.GetValue().CallMethod("abort", "the request was aborted")));
 
-                var request = BuildRequest(url, method, headers, body, controller["signal"]);
+                var request = BuildRequest(lease, url, method, headers, body, requestBody, controller["signal"], cancellationToken);
                 // Three arguments, as the convention specifies: the request, the host environment, and an
                 // execution context. A handler reaching for ctx.waitUntil finds it rather than undefined.
                 var pending = fetch.Call(app.IsFunction() ? JSValue.Undefined : app, request, BuildEnvironment(), JSValue.RunScript(ContextScript));
@@ -328,12 +368,15 @@ public class FetchRequestHandler : INodeRequestHandler
     /// <summary>
     /// Builds the runtime's own <c>Request</c>, value by value. Must be called on the engine's thread.
     /// </summary>
+    /// <param name="lease"></param>
     /// <param name="url"></param>
     /// <param name="method"></param>
     /// <param name="headers"></param>
     /// <param name="body"></param>
+    /// <param name="mode"></param>
     /// <param name="signal"></param>
-    static JSValue BuildRequest(string url, string method, List<KeyValuePair<string, string>> headers, byte[]? body, JSValue signal)
+    /// <param name="cancellationToken"></param>
+    static JSValue BuildRequest(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, Stream? body, BodyMode mode, JSValue signal, CancellationToken cancellationToken)
     {
         var init = JSValue.CreateObject();
         init["method"] = method;
@@ -352,7 +395,24 @@ public class FetchRequestHandler : INodeRequestHandler
         init["headers"] = pairs;
 
         if (body is not null)
-            init["body"] = new JSTypedArray<byte>(body);
+        {
+            if (mode == BodyMode.Buffered)
+            {
+                // Already in memory — the caller drained it before entering the engine — so reading
+                // it here cannot block the event loop.
+                using var buffer = new MemoryStream();
+                body.CopyTo(buffer);
+                init["body"] = new JSTypedArray<byte>(buffer.ToArray());
+            }
+            else
+            {
+                init["body"] = CreateBodyStream(lease, body, cancellationToken);
+
+                // Required of a request whose body is a stream: it says the body is not being written
+                // in response to what comes back, which is the only mode this is.
+                init["duplex"] = "half";
+            }
+        }
 
         return JSValue.Global["Request"].CallAsConstructor(url, init);
     }
@@ -420,6 +480,108 @@ public class FetchRequestHandler : INodeRequestHandler
             headers.Add(new("X-Forwarded-Prefix", context.Request.PathBase.Value));
 
         return headers;
+    }
+
+    /// <summary>
+    /// How much of the request body is asked for at a time.
+    /// </summary>
+    /// <remarks>
+    /// One rented-sized read per pull. The stream asks again only when the application has taken what
+    /// it was given, so this bounds what is in flight rather than what is transferred — a large upload
+    /// costs this much memory, not its own size.
+    /// </remarks>
+    const int BodyChunkSize = 16 * 1024;
+
+    /// <summary>
+    /// Presents the request body to the application as a <c>ReadableStream</c>.
+    /// </summary>
+    /// <remarks>
+    /// A hand-built underlying source rather than a marshalled object: <c>pull</c> is a .NET delegate
+    /// exposed as a JS function, called on the engine's thread whenever the application wants more.
+    /// It answers a promise, so the read itself happens off that thread and the engine's event loop
+    /// is never held waiting on a socket.
+    ///
+    /// Resolving that promise has to happen back on the engine's thread, which is what the post is
+    /// for — a JS value touched from the reading thread is invalid, and this is the same asymmetry
+    /// the abort registration already deals with.
+    /// </remarks>
+    /// <param name="lease"></param>
+    /// <param name="body"></param>
+    /// <param name="cancellationToken"></param>
+    static JSValue CreateBodyStream(NodeEngineLease lease, Stream body, CancellationToken cancellationToken)
+    {
+        var source = JSValue.CreateObject();
+
+        source["pull"] = JSValue.CreateFunction("pull", args =>
+        {
+            var controller = new JSReference(args[0], isWeak: false);
+            var promise = JSValue.CreatePromise(out var deferred);
+            _ = PullAsync(lease, body, controller, deferred, cancellationToken);
+            return promise;
+        });
+
+        return JSValue.Global["ReadableStream"].CallAsConstructor(source);
+    }
+
+    /// <summary>
+    /// Reads one chunk and hands it to the stream's controller.
+    /// </summary>
+    /// <remarks>
+    /// Everything touching JS is posted, and everything posted swallows: work queued onto an engine
+    /// that is being torn down runs during that teardown, and a throw from there recurses inside the
+    /// native callback rather than surfacing anywhere useful.
+    /// </remarks>
+    /// <param name="lease"></param>
+    /// <param name="body"></param>
+    /// <param name="controller"></param>
+    /// <param name="deferred"></param>
+    /// <param name="cancellationToken"></param>
+    static async Task PullAsync(NodeEngineLease lease, Stream body, JSReference controller, JSPromise.Deferred deferred, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var buffer = new byte[BodyChunkSize];
+            var read = await body.ReadAsync(buffer.AsMemory(), cancellationToken);
+
+            lease.TryPost(() =>
+            {
+                try
+                {
+                    if (read == 0)
+                        controller.GetValue().CallMethod("close");
+                    else
+                        controller.GetValue().CallMethod("enqueue", new JSTypedArray<byte>(buffer.AsMemory(0, read)));
+
+                    deferred.Resolve(JSValue.Undefined);
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    controller.Dispose();
+                }
+            });
+        }
+        catch (Exception e)
+        {
+            // The stream errors rather than the promise going unobserved: what pull returns is
+            // consumed by the stream machinery, so a rejection here is handled there.
+            lease.TryPost(() =>
+            {
+                try
+                {
+                    deferred.Reject(new JSError(e.Message));
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    controller.Dispose();
+                }
+            });
+        }
     }
 
     /// <summary>

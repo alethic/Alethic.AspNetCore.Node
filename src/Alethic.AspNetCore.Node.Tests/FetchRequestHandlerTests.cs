@@ -1,10 +1,14 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -110,6 +114,205 @@ public class FetchRequestHandlerTests
         StringAssert.Contains(text, "\"path\":\"/parks/enchanted-rock\"");
         StringAssert.Contains(text, "\"method\":\"GET\"");
         StringAssert.Contains(text, "\"x-probe\":\"value\"");
+    }
+
+    [TestMethod]
+    public async Task A_request_body_is_read_as_the_application_asks_for_it()
+    {
+        const string ReaderModule = """
+            module.exports.default = {
+                async fetch(request) {
+                    const reader = request.body.getReader();
+                    let bytes = 0, chunks = 0, sum = 0;
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done)
+                            break;
+
+                        chunks++;
+                        bytes += value.length;
+                        for (const b of value)
+                            sum = (sum + b) % 1000003;
+                    }
+
+                    return new Response(JSON.stringify({ bytes, chunks, sum }), { status: 200 });
+                },
+            };
+            """;
+
+        var (services, engine) = Build(ReaderModule);
+        await using var _ = services;
+
+        var payload = new byte[100 * 1024];
+        var expected = 0;
+        for (var i = 0; i < payload.Length; i++)
+        {
+            payload[i] = (byte)(i % 251);
+            expected = (expected + payload[i]) % 1000003;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://unit.test/upload")
+        {
+            Content = new ByteArrayContent(payload),
+        };
+
+        using var response = await engine.SendAsync(request);
+        var text = await response.Content.ReadAsStringAsync();
+
+        // More than one piece, which is the whole point: the application pulled repeatedly rather
+        // than being handed the body entire, so what is in memory at once is a chunk and not an
+        // upload. Every byte still arrived, in order.
+        var chunks = int.Parse(Regex.Match(text, @"""chunks"":(\d+)").Groups[1].Value);
+        Assert.IsTrue(chunks > 1, $"the body arrived in {chunks} piece(s), so it was not streamed");
+
+        StringAssert.Contains(text, $"\"bytes\":{payload.Length}");
+        StringAssert.Contains(text, $"\"sum\":{expected}");
+    }
+
+    [TestMethod]
+    public async Task A_request_body_the_application_never_reads_does_not_hang()
+    {
+        const string IgnoresBodyModule = """
+            module.exports.default = {
+                fetch(request) {
+                    return new Response('ignored', { status: 200 });
+                },
+            };
+            """;
+
+        var (services, engine) = Build(IgnoresBodyModule);
+        await using var _ = services;
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://unit.test/upload")
+        {
+            Content = new ByteArrayContent(new byte[64 * 1024]),
+        };
+
+        // Nothing pulls, so nothing is ever read — the render must not wait on a body the
+        // application had no interest in.
+        using var response = await engine.SendAsync(request).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("ignored", await response.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
+    public async Task A_buffered_request_body_can_be_read_twice()
+    {
+        const string ClonesModule = """
+            module.exports.default = {
+                async fetch(request) {
+                    const once = await request.clone().text();
+                    const twice = await request.text();
+                    return new Response(once + '|' + twice, { status: 200 });
+                },
+            };
+            """;
+
+        var services = new ServiceCollection();
+        services.AddNodeEnginePool();
+        await using var provider = services.BuildServiceProvider();
+
+        var handler = new FetchRequestHandler(
+            provider.GetRequiredService<NodeEnginePool>(),
+            new FetchRequestHandlerOptions()
+            {
+                Module = TestModules.FromText("app.cjs", ClonesModule),
+                RequestBody = BodyMode.Buffered,
+            });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://unit.test/")
+        {
+            Content = new StringContent("park data"),
+        };
+
+        using var response = await handler.SendAsync(request);
+
+        // What a stream cannot do, and the reason the mode exists.
+        Assert.AreEqual("park data|park data", await response.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
+    public async Task A_buffered_response_carries_a_length()
+    {
+        var services = new ServiceCollection();
+        services.AddNodeEnginePool();
+        await using var provider = services.BuildServiceProvider();
+
+        var handler = new FetchRequestHandler(
+            provider.GetRequiredService<NodeEnginePool>(),
+            new FetchRequestHandlerOptions()
+            {
+                Module = TestModules.FromText("app.cjs", EchoModule),
+                ResponseBody = BodyMode.Buffered,
+            });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/parks/enchanted-rock");
+        using var response = await handler.SendAsync(request);
+        var text = await response.Content.ReadAsStringAsync();
+
+        // Nothing is written until the render has finished, so its length is known by then and the
+        // response says so rather than being framed as chunked.
+        Assert.AreEqual(text.Length, response.Content.Headers.ContentLength);
+        StringAssert.Contains(text, "\"path\":\"/parks/enchanted-rock\"");
+    }
+
+    [TestMethod]
+    [DataRow(BodyMode.Streamed, "partial")]
+    [DataRow(BodyMode.Buffered, "")]
+    public async Task What_a_late_failure_leaves_behind_depends_on_the_mode(BodyMode mode, string expected)
+    {
+        const string FailsLateModule = """
+            module.exports.default = {
+                fetch(request) {
+                    let sent = false;
+
+                    // Erred from a later pull, not alongside the enqueue: error() discards whatever is
+                    // queued, so a chunk has to have been handed over before the failure to be lost by
+                    // it.
+                    const body = new ReadableStream({
+                        pull(controller) {
+                            if (!sent) {
+                                sent = true;
+                                controller.enqueue(new TextEncoder().encode('partial'));
+                                return;
+                            }
+
+                            controller.error(new Error('failed after the head'));
+                        },
+                    });
+
+                    return new Response(body, { status: 200, headers: { 'content-type': 'text/plain' } });
+                },
+            };
+            """;
+
+        var services = new ServiceCollection();
+        services.AddNodeEnginePool();
+        await using var provider = services.BuildServiceProvider();
+
+        var handler = new FetchRequestHandler(
+            provider.GetRequiredService<NodeEnginePool>(),
+            new FetchRequestHandlerOptions()
+            {
+                Module = TestModules.FromText("app.cjs", FailsLateModule),
+                ResponseBody = mode,
+            });
+
+        var context = new DefaultHttpContext();
+        context.Request.Method = "GET";
+        context.Request.Path = "/";
+
+        var written = new MemoryStream();
+        context.Response.Body = written;
+
+        await Assert.ThrowsAsync<Exception>(() => handler.HandleAsync(context));
+
+        // The render fails after its first chunk either way. Streamed, that chunk is already on the
+        // wire and the client is left holding a truncated page under a 200 it cannot distinguish
+        // from a whole one. Buffered, nothing has been written, so the failure is still a failure.
+        Assert.AreEqual(expected, Encoding.UTF8.GetString(written.ToArray()));
     }
 
     [TestMethod]
