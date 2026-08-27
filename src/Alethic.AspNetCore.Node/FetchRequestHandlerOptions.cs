@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Microsoft.AspNetCore.Http;
+
 namespace Alethic.AspNetCore.Node;
 
 /// <summary>
@@ -63,5 +65,24 @@ public class FetchRequestHandlerOptions
     /// strings. The convention leaves the contents to the host; this host has strings to give.
     /// </remarks>
     public IDictionary<string, string> Environment { get; } = new Dictionary<string, string>();
+
+    /// <summary>
+    /// Adds to the environment for one request.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Environment"/> is the bindings an application is deployed with, fixed for as long
+    /// as the handler lives — which is what the convention describes, those being per isolate on
+    /// Workers and per engine here. This is for what a host knows per request and cannot state any
+    /// other way: a tenant resolved from the authority, a correlation id, a flag set. Called with the
+    /// static values already in place, so it may add to them or replace them.
+    ///
+    /// Not the place for what the request already carries. Anything the protocol states — the method,
+    /// the path, the caller's address — reaches the application on the request itself, and saying it
+    /// twice invites the two accounts to disagree.
+    ///
+    /// Runs off the engine's thread, before the render begins, so it may do as it likes without
+    /// occupying an event loop.
+    /// </remarks>
+    public Action<HttpContext, IDictionary<string, string>>? ConfigureEnvironment { get; set; }
 
 }

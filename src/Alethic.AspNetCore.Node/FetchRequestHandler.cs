@@ -74,6 +74,7 @@ public class FetchRequestHandler : INodeRequestHandler
     readonly BodyMode requestBody;
     readonly BodyMode responseBody;
     readonly Dictionary<string, string> environment;
+    readonly Action<HttpContext, IDictionary<string, string>>? configureEnvironment;
     readonly ILogger logger;
 
     /// <summary>
@@ -102,6 +103,7 @@ public class FetchRequestHandler : INodeRequestHandler
         requestBody = options.RequestBody;
         responseBody = options.ResponseBody;
         environment = new Dictionary<string, string>(options.Environment);
+        configureEnvironment = options.ConfigureEnvironment;
     }
 
     /// <inheritdoc />
@@ -114,12 +116,29 @@ public class FetchRequestHandler : INodeRequestHandler
         pool.PrepareAsync(lease => lease.ImportAsync(module, cancellationToken), cancellationToken);
 
     /// <summary>
+    /// The values this request's application will see as its environment.
+    /// </summary>
+    /// <remarks>
+    /// Assembled here rather than on the engine's thread: the hook is the host's own code, and an
+    /// event loop is the wrong place to run something that might take its time.
+    /// </remarks>
+    /// <param name="context"></param>
+    IDictionary<string, string> CollectEnvironment(HttpContext context)
+    {
+        var values = new Dictionary<string, string>(environment);
+        configureEnvironment?.Invoke(context, values);
+
+        return values;
+    }
+
+    /// <summary>
     /// Builds the environment object the handler receives. Must be called on the engine's thread.
     /// </summary>
-    JSValue BuildEnvironment()
+    /// <param name="values"></param>
+    static JSValue BuildEnvironment(IDictionary<string, string> values)
     {
         var env = JSValue.CreateObject();
-        foreach (var (key, value) in environment)
+        foreach (var (key, value) in values)
             env[key] = value;
 
         return env;
@@ -158,6 +177,7 @@ public class FetchRequestHandler : INodeRequestHandler
             context.Request.QueryString.ToUriComponent());
         var method = context.Request.Method;
         var headers = CollectHeaders(context);
+        var environmentValues = CollectEnvironment(context);
 
         // The stream itself, not its contents: the application reads it as it needs it, so an upload
         // is never held in memory here on its way through. Buffered, it is drained first — here,
@@ -184,7 +204,7 @@ public class FetchRequestHandler : INodeRequestHandler
             // The render runs ahead of the copy: the head settles as soon as the application answers,
             // and the body arrives behind it. A fault before the head surfaces here; one after it can
             // only truncate the body, the status having already gone out.
-            pump = PumpAsync(lease, url, method, headers, body, pipe.Writer, head, cancellationToken);
+            pump = PumpAsync(lease, url, method, headers, body, environmentValues, pipe.Writer, head, cancellationToken);
 
             var completed = await Task.WhenAny(head.Task, pump);
             if (completed == pump)
@@ -302,10 +322,11 @@ public class FetchRequestHandler : INodeRequestHandler
     /// <param name="method"></param>
     /// <param name="headers"></param>
     /// <param name="body"></param>
+    /// <param name="environmentValues"></param>
     /// <param name="writer"></param>
     /// <param name="head"></param>
     /// <param name="cancellationToken"></param>
-    async Task PumpAsync(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, Stream? body, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
+    async Task PumpAsync(NodeEngineLease lease, string url, string method, List<KeyValuePair<string, string>> headers, Stream? body, IDictionary<string, string> environmentValues, PipeWriter writer, TaskCompletionSource<ResponseHead> head, CancellationToken cancellationToken)
     {
         try
         {
@@ -326,7 +347,7 @@ public class FetchRequestHandler : INodeRequestHandler
                 var request = BuildRequest(lease, url, method, headers, body, requestBody, controller["signal"], cancellationToken);
                 // Three arguments, as the convention specifies: the request, the host environment, and an
                 // execution context. A handler reaching for ctx.waitUntil finds it rather than undefined.
-                var pending = fetch.Call(app.IsFunction() ? JSValue.Undefined : app, request, BuildEnvironment(), JSValue.RunScript(ContextScript));
+                var pending = fetch.Call(app.IsFunction() ? JSValue.Undefined : app, request, BuildEnvironment(environmentValues), JSValue.RunScript(ContextScript));
 
                 // Scope ends at the await; everything above but the references is invalid after it.
                 var response = await ((JSPromise)JSValue.Global["Promise"].CallMethod("resolve", pending)).AsTask();

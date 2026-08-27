@@ -99,6 +99,48 @@ public class FetchRequestHandlerContractTests
     }
 
     [TestMethod]
+    public async Task The_host_may_add_to_the_environment_per_request()
+    {
+        const string Module = """
+            module.exports.default = {
+                fetch(request, env) {
+                    return new Response([env.Name, env.Tenant, env.Where].join('|'), { status: 200 });
+                },
+            };
+            """;
+
+        var (services, engine) = Build(Module, o =>
+        {
+            o.Environment["Name"] = "unit";
+            o.Environment["Where"] = "deployment";
+
+            o.ConfigureEnvironment = (context, values) =>
+            {
+                // Something the host knows about this caller and the protocol does not state.
+                values["Tenant"] = context.Request.Headers["x-tenant"].ToString();
+
+                // The static values are already in place, so this replaces rather than accompanies.
+                values["Where"] = "request";
+            };
+        });
+
+        await using var _ = services;
+
+        using var first = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
+        first.Headers.TryAddWithoutValidation("x-tenant", "acme");
+        using var firstResponse = await engine.SendAsync(first);
+
+        using var second = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
+        second.Headers.TryAddWithoutValidation("x-tenant", "globex");
+        using var secondResponse = await engine.SendAsync(second);
+
+        // Bindings still arrive; what the host added varies by request, which is the whole point —
+        // the same handler, the same engine, two answers.
+        Assert.AreEqual("unit|acme|request", await firstResponse.Content.ReadAsStringAsync());
+        Assert.AreEqual("unit|globex|request", await secondResponse.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
     public async Task The_environment_reaches_the_handler()
     {
         // The convention's env argument: the place for what only the host knows. Input only  14 it is
