@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -98,8 +100,37 @@ public class FetchRequestHandlerContractTests
         Assert.AreEqual("yes:1", await One());
     }
 
+    /// <summary>
+    /// A handler that adds what this host knows about the caller, standing in for one that resolves
+    /// a tenant, a correlation id, or a flag set.
+    /// </summary>
+    sealed class TenantHandler : FetchRequestHandler
+    {
+
+        public TenantHandler(NodeEnginePool pool, FetchRequestHandlerOptions options) :
+            base(pool, options)
+        {
+
+        }
+
+        /// <inheritdoc />
+        protected override IDictionary<string, string> CollectEnvironment(HttpContext context)
+        {
+            var values = base.CollectEnvironment(context);
+
+            // Something this host knows about this caller which the protocol does not state.
+            values["Tenant"] = context.Request.Headers["x-tenant"].ToString();
+
+            // The deployment's bindings are already in place, so this replaces rather than accompanies.
+            values["Where"] = "request";
+
+            return values;
+        }
+
+    }
+
     [TestMethod]
-    public async Task The_host_may_add_to_the_environment_per_request()
+    public async Task A_handler_may_add_to_the_environment_per_request()
     {
         const string Module = """
             module.exports.default = {
@@ -109,32 +140,27 @@ public class FetchRequestHandlerContractTests
             };
             """;
 
-        var (services, engine) = Build(Module, o =>
-        {
-            o.Environment["Name"] = "unit";
-            o.Environment["Where"] = "deployment";
+        var services = new ServiceCollection();
+        services.AddNodeEnginePool();
+        await using var provider = services.BuildServiceProvider();
 
-            o.ConfigureEnvironment = (context, values) =>
+        var handler = new TenantHandler(
+            provider.GetRequiredService<NodeEnginePool>(),
+            new FetchRequestHandlerOptions()
             {
-                // Something the host knows about this caller and the protocol does not state.
-                values["Tenant"] = context.Request.Headers["x-tenant"].ToString();
-
-                // The static values are already in place, so this replaces rather than accompanies.
-                values["Where"] = "request";
-            };
-        });
-
-        await using var _ = services;
+                Module = TestModules.FromText("app.cjs", Module),
+                Environment = { ["Name"] = "unit", ["Where"] = "deployment" },
+            });
 
         using var first = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
         first.Headers.TryAddWithoutValidation("x-tenant", "acme");
-        using var firstResponse = await engine.SendAsync(first);
+        using var firstResponse = await handler.SendAsync(first);
 
         using var second = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/");
         second.Headers.TryAddWithoutValidation("x-tenant", "globex");
-        using var secondResponse = await engine.SendAsync(second);
+        using var secondResponse = await handler.SendAsync(second);
 
-        // Bindings still arrive; what the host added varies by request, which is the whole point —
+        // Bindings still arrive; what the handler added varies by request, which is the whole point —
         // the same handler, the same engine, two answers.
         Assert.AreEqual("unit|acme|request", await firstResponse.Content.ReadAsStringAsync());
         Assert.AreEqual("unit|globex|request", await secondResponse.Content.ReadAsStringAsync());

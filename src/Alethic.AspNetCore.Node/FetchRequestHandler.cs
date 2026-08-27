@@ -74,7 +74,6 @@ public class FetchRequestHandler : INodeRequestHandler
     readonly BodyMode requestBody;
     readonly BodyMode responseBody;
     readonly Dictionary<string, string> environment;
-    readonly Action<HttpContext, IDictionary<string, string>>? configureEnvironment;
     readonly ILogger logger;
 
     /// <summary>
@@ -103,7 +102,6 @@ public class FetchRequestHandler : INodeRequestHandler
         requestBody = options.RequestBody;
         responseBody = options.ResponseBody;
         environment = new Dictionary<string, string>(options.Environment);
-        configureEnvironment = options.ConfigureEnvironment;
     }
 
     /// <inheritdoc />
@@ -119,16 +117,22 @@ public class FetchRequestHandler : INodeRequestHandler
     /// The values this request's application will see as its environment.
     /// </summary>
     /// <remarks>
-    /// Assembled here rather than on the engine's thread: the hook is the host's own code, and an
-    /// event loop is the wrong place to run something that might take its time.
+    /// <see cref="FetchRequestHandlerOptions.Environment"/> is the bindings an application is
+    /// deployed with, fixed for as long as the handler lives — which is what the convention
+    /// describes, those being per isolate on Workers and per engine here.
+    ///
+    /// Override to add what a host knows per request and the protocol does not state: a tenant
+    /// resolved from the authority, a correlation id, a flag set for this caller. Not the place for
+    /// what the request already carries — the method, the path, the caller's address all reach the
+    /// application on the request itself, and saying it twice invites the two accounts to disagree.
+    ///
+    /// Called off the engine's thread, before the render begins, so an override may do as it likes
+    /// without occupying an event loop.
     /// </remarks>
     /// <param name="context"></param>
-    IDictionary<string, string> CollectEnvironment(HttpContext context)
+    protected virtual IDictionary<string, string> CollectEnvironment(HttpContext context)
     {
-        var values = new Dictionary<string, string>(environment);
-        configureEnvironment?.Invoke(context, values);
-
-        return values;
+        return new Dictionary<string, string>(environment);
     }
 
     /// <summary>
