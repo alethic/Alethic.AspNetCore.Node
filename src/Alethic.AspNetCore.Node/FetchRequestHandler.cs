@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Pipelines;
-using System.Net;
-using System.Net.Http;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.JavaScript.NodeApi;
@@ -39,7 +41,7 @@ namespace Alethic.AspNetCore.Node;
 ///
 /// Open to derivation, for the specialization that is a variation on this handler rather than a
 /// protocol of its own: a host with something to add to the request, or to say about the response,
-/// overrides <see cref="SendAsync"/> and calls back. A handler speaking some other protocol
+/// overrides <see cref="HandleAsync"/> and calls back. A handler speaking some other protocol
 /// implements <see cref="INodeRequestHandler"/> directly instead — that is the seam for a different
 /// conversation with the application, where this is the seam for the same one held differently.
 /// </remarks>
@@ -68,6 +70,7 @@ public class FetchRequestHandler : INodeRequestHandler
 
     readonly NodeEnginePool pool;
     readonly NodeModuleSource module;
+    readonly Uri baseUri;
     readonly Dictionary<string, string> environment;
     readonly ILogger logger;
 
@@ -93,6 +96,7 @@ public class FetchRequestHandler : INodeRequestHandler
         this.logger = logger ?? NullLogger<FetchRequestHandler>.Instance;
 
         module = options.Module ?? throw new ArgumentException("A handler needs a module.", nameof(options));
+        baseUri = options.BaseUri ?? throw new ArgumentException("A handler needs a base address.", nameof(options));
         environment = new Dictionary<string, string>(options.Environment);
     }
 
@@ -117,30 +121,59 @@ public class FetchRequestHandler : INodeRequestHandler
         return env;
     }
 
-    /// <inheritdoc />
-    public virtual async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
+    /// <summary>
+    /// Headers stating where the application is mounted, which this handler writes from the request
+    /// ASP.NET resolved rather than passing on whatever arrived under those names.
+    /// </summary>
+    static readonly string[] MountHeaders = ["X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-Prefix"];
 
-        var url = request.RequestUri?.ToString() ?? throw new InvalidOperationException("Request has no URI.");
-        var method = request.Method.Method;
-        var headers = CollectHeaders(request);
+    /// <summary>
+    /// Response headers the server frames itself, whatever the application says about them.
+    /// </summary>
+    static readonly string[] FramingHeaders = ["Content-Length", "Transfer-Encoding"];
+
+    /// <inheritdoc />
+    public virtual async Task HandleAsync(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var cancellationToken = context.RequestAborted;
+
+        // The path below the mount, resolved against the address the application is asked at. This is
+        // a proxy — an in-process one rather than a network one — so the application is addressed the
+        // way an origin server behind one is: the mount removed from the path and named in a header,
+        // and nothing in the URL claiming to be where the caller was.
+        //
+        // Concatenated rather than resolved: the request path is rooted, and Uri resolution treats a
+        // rooted reference as absolute, which would drop any path the base address carries instead of
+        // inserting it.
+        var url = string.Concat(
+            baseUri.GetLeftPart(UriPartial.Authority),
+            baseUri.AbsolutePath.TrimEnd('/'),
+            context.Request.Path.ToUriComponent(),
+            context.Request.QueryString.ToUriComponent());
+        var method = context.Request.Method;
+        var headers = CollectHeaders(context);
 
         byte[]? body = null;
-        if (request.Content is not null)
-            body = await request.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (context.Request.ContentLength > 0 || context.Request.Headers.TransferEncoding.Count > 0)
+        {
+            using var buffer = new MemoryStream();
+            await context.Request.Body.CopyToAsync(buffer, cancellationToken);
+            body = buffer.ToArray();
+        }
 
         var lease = await pool.AcquireAsync(cancellationToken);
+        var pipe = new Pipe();
+        var head = new TaskCompletionSource<ResponseHead>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? pump = null;
 
         try
         {
-            var pipe = new Pipe();
-            var head = new TaskCompletionSource<ResponseHead>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            // The render outlives this method: the response is returned once its head is known, and
-            // its body continues to arrive afterwards. Faults before the head surface to the caller;
-            // faults after it can only truncate the body, the status having already been settled.
-            var pump = PumpAsync(lease, url, method, headers, body, pipe.Writer, head, cancellationToken);
+            // The render runs ahead of the copy: the head settles as soon as the application answers,
+            // and the body arrives behind it. A fault before the head surfaces here; one after it can
+            // only truncate the body, the status having already gone out.
+            pump = PumpAsync(lease, url, method, headers, body, pipe.Writer, head, cancellationToken);
 
             var completed = await Task.WhenAny(head.Task, pump);
             if (completed == pump)
@@ -148,25 +181,70 @@ public class FetchRequestHandler : INodeRequestHandler
 
             var headValue = await head.Task;
 
-            var response = new HttpResponseMessage((HttpStatusCode)headValue.Status)
-            {
-                RequestMessage = request,
-
-                // Disposing the content disposes this stream, and this stream's disposal releases the
-                // lease and observes the pump — the lifetime lands where callers already manage it.
-                Content = new StreamContent(new ResponseBodyStream(pipe.Reader.AsStream(), lease, pump)),
-            };
+            context.Response.StatusCode = headValue.Status;
 
             foreach (var (name, value) in headValue.Headers)
-                if (response.Headers.TryAddWithoutValidation(name, value) == false)
-                    response.Content.Headers.TryAddWithoutValidation(name, value);
+            {
+                // The body arrives as a stream of unknown length and the server frames it itself; a
+                // length or transfer coding from the application would claim otherwise.
+                if (FramingHeaders.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    continue;
 
-            return response;
+                context.Response.Headers.Append(name, value);
+            }
+
+            await CopyAsync(pipe.Reader, context.Response.Body, cancellationToken);
         }
-        catch
+        finally
         {
+            // In this order: completing the reader is what unblocks a pump still writing, so it has
+            // to happen before the pump is waited on; the pump's fault, if any, was already delivered
+            // through the head or the body and is only observed here; and the lease is released last,
+            // once nothing is still running against the engine.
+            await pipe.Reader.CompleteAsync();
+
+            if (pump is not null)
+            {
+                try
+                {
+                    await pump;
+                }
+                catch
+                {
+                }
+            }
+
             await lease.DisposeAsync();
-            throw;
+        }
+    }
+
+    /// <summary>
+    /// Copies the rendered body to the response as it is produced.
+    /// </summary>
+    /// <remarks>
+    /// Flushed per read rather than copied wholesale, so progress the render makes is progress the
+    /// client sees — which is the whole point of a shell reaching the browser ahead of the content
+    /// suspended behind it.
+    /// </remarks>
+    /// <param name="reader"></param>
+    /// <param name="destination"></param>
+    /// <param name="cancellationToken"></param>
+    static async Task CopyAsync(PipeReader reader, Stream destination, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var result = await reader.ReadAsync(cancellationToken);
+
+            foreach (var segment in result.Buffer)
+            {
+                await destination.WriteAsync(segment, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+            }
+
+            reader.AdvanceTo(result.Buffer.End);
+
+            if (result.IsCompleted || result.IsCanceled)
+                break;
         }
     }
 
@@ -303,21 +381,43 @@ public class FetchRequestHandler : INodeRequestHandler
     }
 
     /// <summary>
-    /// Flattens the request's headers, content headers included.
+    /// Flattens the request's headers, and states where the application is mounted.
     /// </summary>
-    /// <param name="request"></param>
-    static List<KeyValuePair<string, string>> CollectHeaders(HttpRequestMessage request)
+    /// <remarks>
+    /// <c>Host</c> is dropped: the authority the application is addressed at is in the URL, and a
+    /// Host header beside it would contradict it.
+    ///
+    /// The mount headers are dropped and then written afresh. Every other header is passed on as it
+    /// arrived, so leaving these would let a caller describe the mount to the application and have it
+    /// read as though this host had said so.
+    /// </remarks>
+    /// <param name="context"></param>
+    static List<KeyValuePair<string, string>> CollectHeaders(HttpContext context)
     {
         var headers = new List<KeyValuePair<string, string>>();
 
-        foreach (var header in request.Headers)
-            foreach (var value in header.Value)
-                headers.Add(new(header.Key, value));
+        foreach (var header in context.Request.Headers)
+        {
+            if (string.Equals(header.Key, "Host", StringComparison.OrdinalIgnoreCase))
+                continue;
 
-        if (request.Content is not null)
-            foreach (var header in request.Content.Headers)
-                foreach (var value in header.Value)
+            if (MountHeaders.Contains(header.Key, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            foreach (var value in header.Value)
+                if (value is not null)
                     headers.Add(new(header.Key, value));
+        }
+
+        headers.Add(new("X-Forwarded-Proto", context.Request.Scheme));
+
+        if (context.Request.Host.HasValue)
+            headers.Add(new("X-Forwarded-Host", context.Request.Host.Value));
+
+        // Absent rather than empty at the root, which is what a proxy rewriting no prefix sends, and
+        // which leaves the application's own default as the answer rather than a case to handle.
+        if (context.Request.PathBase.HasValue)
+            headers.Add(new("X-Forwarded-Prefix", context.Request.PathBase.Value));
 
         return headers;
     }

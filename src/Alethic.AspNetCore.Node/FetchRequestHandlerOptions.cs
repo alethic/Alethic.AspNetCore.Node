@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Alethic.AspNetCore.Node;
@@ -12,6 +13,22 @@ public class FetchRequestHandlerOptions
     /// The application's server module: a self-contained CommonJS bundle.
     /// </summary>
     public NodeModuleSource? Module { get; set; }
+
+    /// <summary>
+    /// The address the application is asked at, which the path below the mount is resolved against.
+    /// </summary>
+    /// <remarks>
+    /// Not where the caller was, and deliberately not able to pass for it. The default authority is
+    /// reserved by RFC 2606 against ever resolving, so no deployment can make it look plausible and
+    /// nothing can quietly take a request URL for its own public address — <c>X-Forwarded-Proto</c>,
+    /// <c>X-Forwarded-Host</c> and <c>X-Forwarded-Prefix</c> are the account of that, and an
+    /// application is meant to have to read them.
+    ///
+    /// A path here is inserted ahead of the request's own, for an application that expects to be
+    /// asked under one. It is unrelated to where the host has mounted the application, which is
+    /// removed from the path and named in <c>X-Forwarded-Prefix</c> instead.
+    /// </remarks>
+    public Uri BaseUri { get; set; } = new Uri("http://node.invalid/");
 
     /// <summary>
     /// Values the host supplies to the application, reaching it as the <c>env</c> argument of

@@ -494,11 +494,11 @@ public class NodeEndpointTests
         public Task PrepareAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
-        public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent($"stubbed {request.RequestUri?.AbsolutePath}"),
-            });
+        public Task HandleAsync(HttpContext context)
+        {
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            return context.Response.WriteAsync($"stubbed {context.Request.Path}");
+        }
 
     }
 
