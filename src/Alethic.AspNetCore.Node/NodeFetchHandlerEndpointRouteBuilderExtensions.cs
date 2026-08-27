@@ -48,7 +48,7 @@ public static class NodeFetchHandlerEndpointRouteBuilderExtensions
         var handlerOptions = new FetchRequestHandlerOptions();
         configure(handlerOptions);
 
-        var handler = new FetchRequestHandler(pool, handlerOptions, endpoints.ServiceProvider.GetService<ILogger<FetchRequestHandler>>());
+        var handler = new FetchRequestHandler(pool, handlerOptions, logger: endpoints.ServiceProvider.GetService<ILogger<FetchRequestHandler>>());
 
         return endpoints.MapNode(handler, null, options);
     }

@@ -41,7 +41,8 @@ namespace Alethic.AspNetCore.Node;
 ///
 /// Open to derivation, for the specialization that is a variation on this handler rather than a
 /// protocol of its own: a host with something to add to the request, or to say about the response,
-/// overrides <see cref="HandleAsync"/> and calls back. A handler speaking some other protocol
+/// overrides <see cref="HandleAsync"/> and calls back. Adding to the environment needs no subclass
+/// at all — it is a delegate this takes. A handler speaking some other protocol
 /// implements <see cref="INodeRequestHandler"/> directly instead — that is the seam for a different
 /// conversation with the application, where this is the seam for the same one held differently.
 /// </remarks>
@@ -74,6 +75,7 @@ public class FetchRequestHandler : INodeRequestHandler
     readonly BodyMode requestBody;
     readonly BodyMode responseBody;
     readonly Dictionary<string, string> environment;
+    readonly Action<HttpContext, IDictionary<string, string>>? configureEnvironment;
     readonly ILogger logger;
 
     /// <summary>
@@ -89,8 +91,9 @@ public class FetchRequestHandler : INodeRequestHandler
     /// </remarks>
     /// <param name="pool"></param>
     /// <param name="options"></param>
+    /// <param name="configureEnvironment"></param>
     /// <param name="logger"></param>
-    public FetchRequestHandler(NodeEnginePool pool, FetchRequestHandlerOptions options, ILogger<FetchRequestHandler>? logger = null)
+    public FetchRequestHandler(NodeEnginePool pool, FetchRequestHandlerOptions options, Action<HttpContext, IDictionary<string, string>>? configureEnvironment = null, ILogger<FetchRequestHandler>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -102,6 +105,7 @@ public class FetchRequestHandler : INodeRequestHandler
         requestBody = options.RequestBody;
         responseBody = options.ResponseBody;
         environment = new Dictionary<string, string>(options.Environment);
+        this.configureEnvironment = configureEnvironment;
     }
 
     /// <inheritdoc />
@@ -119,20 +123,19 @@ public class FetchRequestHandler : INodeRequestHandler
     /// <remarks>
     /// <see cref="FetchRequestHandlerOptions.Environment"/> is the bindings an application is
     /// deployed with, fixed for as long as the handler lives — which is what the convention
-    /// describes, those being per isolate on Workers and per engine here.
+    /// describes, those being per isolate on Workers and per engine here. The values are already in
+    /// place when the host's own delegate is called, so it may add to them or replace them.
     ///
-    /// Override to add what a host knows per request and the protocol does not state: a tenant
-    /// resolved from the authority, a correlation id, a flag set for this caller. Not the place for
-    /// what the request already carries — the method, the path, the caller's address all reach the
-    /// application on the request itself, and saying it twice invites the two accounts to disagree.
-    ///
-    /// Called off the engine's thread, before the render begins, so an override may do as it likes
-    /// without occupying an event loop.
+    /// Assembled off the engine's thread, before the render begins, so the delegate may do as it
+    /// likes without occupying an event loop.
     /// </remarks>
     /// <param name="context"></param>
-    protected virtual IDictionary<string, string> CollectEnvironment(HttpContext context)
+    IDictionary<string, string> CollectEnvironment(HttpContext context)
     {
-        return new Dictionary<string, string>(environment);
+        var values = new Dictionary<string, string>(environment);
+        configureEnvironment?.Invoke(context, values);
+
+        return values;
     }
 
     /// <summary>
