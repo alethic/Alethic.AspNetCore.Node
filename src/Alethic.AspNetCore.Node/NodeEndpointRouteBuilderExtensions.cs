@@ -237,6 +237,22 @@ public static class NodeEndpointRouteBuilderExtensions
     static readonly string[] MountHeaders = ["X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-Prefix"];
 
     /// <summary>
+    /// Scheme the application is addressed at.
+    /// </summary>
+    const string RequestScheme = "http";
+
+    /// <summary>
+    /// Authority the application is addressed at.
+    /// </summary>
+    /// <remarks>
+    /// Constant, and a name that cannot resolve: <c>.invalid</c> is reserved by RFC 2606 for exactly
+    /// this, so nothing can mistake it for somewhere to reach, and nothing about a deployment can
+    /// make it accidentally plausible. It is not where the caller was — the forwarded headers are
+    /// the only account of that, and an application is meant to have to read them.
+    /// </remarks>
+    const string RequestHost = "node.invalid";
+
+    /// <summary>
     /// Rebuilds the incoming request in the shape the engine expects.
     /// </summary>
     /// <remarks>
@@ -257,18 +273,23 @@ public static class NodeEndpointRouteBuilderExtensions
     /// Sending it while leaving the prefix in place would have anything that understands the header
     /// count the mount twice.
     ///
-    /// The scheme and authority stay in the URL, resolved from whatever arrived, and are repeated in
-    /// <c>X-Forwarded-Proto</c> and <c>X-Forwarded-Host</c> for an application written to read them.
-    /// Those two are conventional rather than load-bearing; the prefix is the one carrying something
-    /// the URL cannot.
+    /// The authority is <see cref="RequestAuthority"/> and not the caller's, which is the same
+    /// reasoning carried to its conclusion. Once the mount is off the path, the caller's authority
+    /// joined to what remains makes a URL nobody asked for: mounted at <c>/foo</c>, a request for
+    /// <c>https://example.com/foo/bar</c> would read as <c>https://example.com/bar</c> — plausible,
+    /// addressable, and wrong. An authority that cannot resolve fails instead of misleading, and
+    /// leaves <c>X-Forwarded-Proto</c>, <c>X-Forwarded-Host</c> and <c>X-Forwarded-Prefix</c> as the
+    /// only account of where the caller actually was — which is what an application behind a proxy
+    /// reads anyway. Reassembled, they are exactly that address.
     /// </remarks>
     /// <param name="context"></param>
     static HttpRequestMessage BuildRequest(HttpContext context)
     {
-        // Deliberately not GetEncodedUrl(), which merges the path base back into the path.
+        // Deliberately neither GetEncodedUrl(), which merges the path base back into the path, nor
+        // the caller's own authority — see the remarks.
         var uri = UriHelper.BuildAbsolute(
-            context.Request.Scheme,
-            context.Request.Host,
+            RequestScheme,
+            new HostString(RequestHost),
             PathString.Empty,
             context.Request.Path,
             context.Request.QueryString);
