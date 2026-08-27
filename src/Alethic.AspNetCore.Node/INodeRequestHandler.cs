@@ -1,6 +1,7 @@
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+
+using Microsoft.AspNetCore.Http;
 
 namespace Alethic.AspNetCore.Node;
 
@@ -37,17 +38,26 @@ public interface INodeRequestHandler
     Task PrepareAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Answers one request.
+    /// Answers one request, writing the response as it is produced.
     /// </summary>
     /// <remarks>
-    /// The response streams: it is returned as soon as its status and headers are known, and its
-    /// content continues to arrive afterwards, so a caller wanting the whole body reads it to the
-    /// end. A failure after the first byte can truncate the body but not change the status.
-    /// Cancellation aborts the work itself, not merely the wait for it, and whatever that work holds
-    /// is released when the response is disposed.
+    /// The context rather than a request message, because a request message is already an answer to
+    /// how the application should be addressed, and that is the implementation's to decide — an
+    /// application whose protocol is not HTTP-shaped should not be handed a shape it did not ask
+    /// for. What is here to be read is whatever ASP.NET resolved, the path base among it, which no
+    /// request message can carry.
+    ///
+    /// The response streams: the status and headers are written as soon as they are known and the
+    /// body follows as it arrives, so a page emitting its shell ahead of suspended content reaches
+    /// the client that way. A failure after the first byte can truncate the body but cannot change
+    /// the status. Cancellation, through <see cref="HttpContext.RequestAborted"/>, aborts the work
+    /// itself and not merely the wait for it.
+    ///
+    /// Nothing outlives the call. Whatever engine capacity the implementation claimed is released
+    /// before it returns, which is what makes the claim an ordinary scope rather than something the
+    /// caller has to remember to dispose.
     /// </remarks>
-    /// <param name="request"></param>
-    /// <param name="cancellationToken"></param>
-    Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default);
+    /// <param name="context"></param>
+    Task HandleAsync(HttpContext context);
 
 }

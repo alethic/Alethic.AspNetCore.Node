@@ -28,7 +28,7 @@ public class FetchRequestHandlerTests
                 for (const [k, v] of request.headers.entries())
                     headers[k] = v;
                 return new Response(
-                    JSON.stringify({ path: url.pathname, method: request.method, headers }),
+                    JSON.stringify({ url: request.url, path: url.pathname, method: request.method, headers }),
                     { status: 200, headers: { 'content-type': 'application/json', 'x-app': 'yes' } });
             },
         };
@@ -68,6 +68,31 @@ public class FetchRequestHandlerTests
     }
 
     [TestMethod]
+    public async Task The_application_is_asked_at_its_configured_address()
+    {
+        var services = new ServiceCollection();
+        services.AddNodeEnginePool();
+        await using var provider = services.BuildServiceProvider();
+
+        var handler = new FetchRequestHandler(
+            provider.GetRequiredService<NodeEnginePool>(),
+            new FetchRequestHandlerOptions()
+            {
+                Module = TestModules.FromText("app.cjs", EchoModule),
+                BaseUri = new Uri("http://somewhere.invalid/app/"),
+            });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://unit.test/parks/enchanted-rock");
+        using var response = await handler.SendAsync(request);
+        var text = await response.Content.ReadAsStringAsync();
+
+        // The configured address, with the request's own path inserted under its prefix — and not
+        // the caller's authority, which reaches the application only through the headers.
+        StringAssert.Contains(text, "\"url\":\"http://somewhere.invalid/app/parks/enchanted-rock\"");
+        StringAssert.Contains(text, "\"x-forwarded-host\":\"unit.test\"");
+    }
+
+    [TestMethod]
     public async Task Send_renders_a_request()
     {
         var (services, engine) = Build(EchoModule);
@@ -81,6 +106,7 @@ public class FetchRequestHandlerTests
 
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.AreEqual("yes", response.Headers.GetValues("x-app").Single());
+        StringAssert.Contains(text, "\"url\":\"http://node.invalid/parks/enchanted-rock\"");
         StringAssert.Contains(text, "\"path\":\"/parks/enchanted-rock\"");
         StringAssert.Contains(text, "\"method\":\"GET\"");
         StringAssert.Contains(text, "\"x-probe\":\"value\"");

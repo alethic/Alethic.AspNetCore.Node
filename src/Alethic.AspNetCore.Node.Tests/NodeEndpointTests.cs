@@ -10,6 +10,7 @@ using Alethic.AspNetCore.Node;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -85,20 +86,37 @@ public class NodeEndpointTests
     /// <param name="module"></param>
     /// <param name="configure"></param>
     /// <param name="pathBase"></param>
-    static async Task<(WebApplication App, HttpClient Client, IReadOnlyList<RenderRoute> Routes)> StartAsync(string module, Action<MapNodeOptions>? configure = null, string? pathBase = null)
+    /// <param name="forwardedHeaders"></param>
+    static async Task<(WebApplication App, HttpClient Client, IReadOnlyList<RenderRoute> Routes)> StartAsync(string module, Action<MapNodeOptions>? configure = null, string? pathBase = null, bool forwardedHeaders = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddNodeEnginePool();
+
+        if (forwardedHeaders)
+            builder.Services.Configure<ForwardedHeadersOptions>(o =>
+            {
+                o.ForwardedHeaders = ForwardedHeaders.All;
+
+                // The test server gives a request no remote address, which the default known-proxy
+                // check reads as untrusted.
+                o.KnownNetworks.Clear();
+                o.KnownProxies.Clear();
+            });
 
         var app = builder.Build();
 
         // Ahead of routing, which therefore has to be asked for: minimal hosting otherwise inserts
         // routing before every middleware, and the prefix would still be on the path when a route is
         // matched.
-        if (pathBase is not null)
+        if (forwardedHeaders || pathBase is not null)
         {
-            app.UsePathBase(pathBase);
+            if (forwardedHeaders)
+                app.UseForwardedHeaders();
+
+            if (pathBase is not null)
+                app.UsePathBase(pathBase);
+
             app.UseRouting();
         }
 
@@ -270,9 +288,66 @@ public class NodeEndpointTests
 
         Assert.AreEqual("/store", response.Headers.GetValues("x-saw-prefix").Single());
 
-        // The URL carries the prefix as well, merged into the path with nothing marking where it
-        // ends — which is the whole reason the boundary has to be stated separately.
-        Assert.AreEqual("http://localhost/store/cart", response.Headers.GetValues("x-saw-url").Single());
+        // The path below the mount, and only that: the prefix is removed rather than repeated, which
+        // is what X-Forwarded-Prefix means everywhere it is read. The authority is not the caller's
+        // — joined to the remaining path it would name somewhere nobody asked for.
+        Assert.AreEqual("http://node.invalid/cart", response.Headers.GetValues("x-saw-url").Single());
+    }
+
+    [TestMethod]
+    public async Task An_application_routes_under_a_mount_knowing_nothing_of_it()
+    {
+        var (app, client, _) = await StartAsync(AppModule, pathBase: "/store");
+        await using var _1 = app;
+
+        var response = await client.GetAsync("/store/parks/enchanted-rock");
+
+        // This application's router declares /parks/:parkRef and nothing about /store. It matches
+        // because it is asked for the path below the mount — handed the mounted path it could only
+        // read /store as a route and miss, having no way to know it was not one.
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("<h1>rendered /parks/enchanted-rock</h1>", await response.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
+    public async Task Mounts_accumulate_through_a_chain()
+    {
+        var (app, client, _) = await StartAsync(EchoModule, pathBase: "/bar", forwardedHeaders: true);
+        await using var _1 = app;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/bar/blah");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Prefix", "/foo");
+
+        var response = await client.SendAsync(request);
+
+        // A proxy in front publishes the application under /foo and forwards what is below that;
+        // this host mounts it again at /bar. Every layer takes its own prefix off the front and adds
+        // it to the header, so the application is asked for the path below the innermost mount and
+        // the header names each layer above it, outermost first — and proto://host + prefix + path
+        // reassembles the address the caller actually used.
+        Assert.AreEqual("/foo/bar", response.Headers.GetValues("x-saw-prefix").Single());
+        Assert.AreEqual("http://node.invalid/blah", response.Headers.GetValues("x-saw-url").Single());
+    }
+
+    [TestMethod]
+    public async Task The_request_url_is_not_the_callers_address()
+    {
+        var (app, client, _) = await StartAsync(EchoModule, pathBase: "/store");
+        await using var _1 = app;
+
+        var response = await client.GetAsync("/store/cart");
+
+        // An authority that cannot resolve, so an application cannot quietly take the request URL
+        // for where the caller was and emit a link nobody can follow. The headers are the account of
+        // that, and reassembling them gives the address actually asked for.
+        var url = new Uri(response.Headers.GetValues("x-saw-url").Single());
+        Assert.AreEqual("node.invalid", url.Host);
+
+        var proto = response.Headers.GetValues("x-saw-proto").Single();
+        var host = response.Headers.GetValues("x-saw-host").Single();
+        var prefix = response.Headers.GetValues("x-saw-prefix").Single();
+
+        Assert.AreEqual("http://localhost/store/cart", $"{proto}://{host}{prefix}{url.AbsolutePath}");
     }
 
     [TestMethod]
@@ -419,11 +494,11 @@ public class NodeEndpointTests
         public Task PrepareAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
-        public Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent($"stubbed {request.RequestUri?.AbsolutePath}"),
-            });
+        public Task HandleAsync(HttpContext context)
+        {
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            return context.Response.WriteAsync($"stubbed {context.Request.Path}");
+        }
 
     }
 
