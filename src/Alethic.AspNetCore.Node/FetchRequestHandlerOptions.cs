@@ -31,6 +31,26 @@ public class FetchRequestHandlerOptions
     public Uri BaseUri { get; set; } = new Uri("http://node.invalid/");
 
     /// <summary>
+    /// How the request body reaches the application. Streamed by default.
+    /// </summary>
+    /// <remarks>
+    /// Buffered where the application needs to read the body more than once, which a stream does not
+    /// allow — cloning a request, or retrying a parse. It costs the body in memory.
+    /// </remarks>
+    public BodyMode RequestBody { get; set; } = BodyMode.Streamed;
+
+    /// <summary>
+    /// How the rendered response reaches the client. Streamed by default.
+    /// </summary>
+    /// <remarks>
+    /// Buffered where a render that fails partway through should fail rather than truncate: nothing
+    /// is written until it has finished, so the status is still open when the fault arrives. It also
+    /// gives the response a length instead of chunked framing. A render that waits on all its data
+    /// before answering gives up nothing by it.
+    /// </remarks>
+    public BodyMode ResponseBody { get; set; } = BodyMode.Streamed;
+
+    /// <summary>
     /// Values the host supplies to the application, reaching it as the <c>env</c> argument of
     /// <c>fetch(request, env, ctx)</c>. The place for what only the host knows — an internal API
     /// address, an environment name.
