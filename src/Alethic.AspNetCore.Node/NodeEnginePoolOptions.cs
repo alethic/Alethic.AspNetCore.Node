@@ -61,8 +61,13 @@ public class NodeEnginePoolOptions
     /// complete, on the same reasoning that a handler which cannot prepare fails the deployment: an
     /// engine that could not be configured is broken, and serving from it is worse than not having
     /// it.
+    ///
+    /// The provider comes with it because engines are allocated lazily, over the life of the
+    /// process: one may stand up long after this was configured, and it should be configured against
+    /// the container as it is then rather than against whatever was resolved and captured earlier.
+    /// It is the root, engines being singletons — anything scoped is the delegate's own to scope.
     /// </remarks>
-    public Func<NodeEngineLease, Task>? ConfigureEngine { get; set; }
+    public Func<IServiceProvider, NodeEngineLease, Task>? ConfigureEngine { get; set; }
 
     /// <summary>
     /// Path to the native Node library, when it cannot be located beside the application or under its

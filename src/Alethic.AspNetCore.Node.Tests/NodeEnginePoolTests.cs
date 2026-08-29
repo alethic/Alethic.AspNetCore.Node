@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.JavaScript.NodeApi;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -37,9 +38,14 @@ public class NodeEnginePoolTests
         var services = BuildServices(o =>
         {
             o.EngineCount = 2;
-            o.ConfigureEngine = lease =>
+            o.ConfigureEngine = (services, lease) =>
             {
                 Interlocked.Increment(ref configured);
+
+                // Resolved as the engine starts rather than captured when this was configured, which
+                // is the point of being handed the container: engines are allocated lazily, and one
+                // may stand up long after the pool was described.
+                Assert.IsNotNull(services.GetService<ILoggerFactory>());
 
                 // Ordinary node-api-dotnet against that runtime, the same as inside any lease.
                 lease.Run(() => JSValue.RunScript("globalThis.configured = true"));
@@ -64,7 +70,7 @@ public class NodeEnginePoolTests
     [TestMethod]
     public async Task An_engine_that_cannot_be_configured_does_not_join_the_pool()
     {
-        var services = BuildServices(o => o.ConfigureEngine = _ => throw new InvalidOperationException("bootstrap refused"));
+        var services = BuildServices(o => o.ConfigureEngine = (_, _) => throw new InvalidOperationException("bootstrap refused"));
         var pool = services.GetRequiredService<NodeEnginePool>();
 
         var module = TestModules.FromText("noop.cjs", "module.exports.value = () => 1;");
