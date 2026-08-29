@@ -23,6 +23,7 @@ public sealed class NodeEnginePool : IAsyncDisposable
 {
 
     readonly NodeEnginePoolOptions options;
+    readonly IServiceProvider services;
     readonly ILoggerFactory loggerFactory;
 
     readonly List<NodeEngine> engines = [];
@@ -37,20 +38,26 @@ public sealed class NodeEnginePool : IAsyncDisposable
     /// </summary>
     /// <param name="options"></param>
     /// <param name="loggerFactory"></param>
-    public NodeEnginePool(IOptions<NodeEnginePoolOptions> options, ILoggerFactory loggerFactory)
-        : this(options?.Value!, loggerFactory)
+    /// <param name="services"></param>
+    public NodeEnginePool(IOptions<NodeEnginePoolOptions> options, ILoggerFactory loggerFactory, IServiceProvider services)
+        : this(options?.Value!, loggerFactory, services)
     {
     }
 
     /// <summary>
     /// Initializes a new instance.
     /// </summary>
+    /// <summary>
+    /// Initializes a new instance.
+    /// </summary>
     /// <param name="options"></param>
     /// <param name="loggerFactory"></param>
-    public NodeEnginePool(NodeEnginePoolOptions options, ILoggerFactory loggerFactory)
+    /// <param name="services"></param>
+    public NodeEnginePool(NodeEnginePoolOptions options, ILoggerFactory loggerFactory, IServiceProvider services)
     {
         this.options = options ?? throw new ArgumentNullException(nameof(options));
         this.loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        this.services = services ?? throw new ArgumentNullException(nameof(services));
 
         // The cap is the whole pool's, so a single engine may take the lot while it is the only one.
         capacity = new SemaphoreSlim(options.EngineCount * options.MaxConcurrencyPerEngine);
@@ -268,7 +275,7 @@ public sealed class NodeEnginePool : IAsyncDisposable
                 {
                     Interlocked.Increment(ref engine.InFlight);
                     await using var lease = new NodeEngineLease(this, engine);
-                    await configure(lease);
+                    await configure(services, lease);
                 }
                 catch
                 {

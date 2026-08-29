@@ -52,11 +52,13 @@ public static class NodeServiceCollectionExtensions
         if (serviceKey is null)
             services.AddSingleton(p => new NodeEnginePool(
                 p.GetRequiredService<IOptionsMonitor<NodeEnginePoolOptions>>().Get(optionsName),
-                p.GetRequiredService<ILoggerFactory>()));
+                p.GetRequiredService<ILoggerFactory>(),
+                p));
         else
             services.AddKeyedSingleton(serviceKey, (p, _) => new NodeEnginePool(
                 p.GetRequiredService<IOptionsMonitor<NodeEnginePoolOptions>>().Get(optionsName),
-                p.GetRequiredService<ILoggerFactory>()));
+                p.GetRequiredService<ILoggerFactory>(),
+                p));
 
         return services;
     }
