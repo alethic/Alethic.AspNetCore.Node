@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace Alethic.AspNetCore.Node;
 
@@ -45,6 +46,23 @@ public class NodeEnginePoolOptions
     /// How long an acquisition may wait for capacity before it is abandoned. Defaults to ten seconds.
     /// </summary>
     public TimeSpan AcquireTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Runs once against each engine as it starts, before anything else is given it.
+    /// </summary>
+    /// <remarks>
+    /// Whatever an engine needs to be true before it answers anything: a global installed, a module
+    /// warmed, a polyfill applied. It is handed a lease, which is the ordinary way to be on an
+    /// engine's thread — inside it you are writing node-api-dotnet against that runtime, exactly as
+    /// you would against a lease taken from the pool.
+    ///
+    /// Per engine, not per acquisition, and the engine does not join the pool until this returns. A
+    /// throw fails the engine and disposes it rather than publishing one whose setup did not
+    /// complete, on the same reasoning that a handler which cannot prepare fails the deployment: an
+    /// engine that could not be configured is broken, and serving from it is worse than not having
+    /// it.
+    /// </remarks>
+    public Func<NodeEngineLease, Task>? ConfigureEngine { get; set; }
 
     /// <summary>
     /// Path to the native Node library, when it cannot be located beside the application or under its

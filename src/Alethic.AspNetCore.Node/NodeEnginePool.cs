@@ -260,6 +260,23 @@ public sealed class NodeEnginePool : IAsyncDisposable
             // is kept off whichever thread happened to ask for it.
             var engine = await Task.Run(() => new NodeEngine(platform, options.BaseDirectory ?? AppContext.BaseDirectory, logger), cancellationToken);
 
+            // Before it joins the pool, so nothing can be handed an engine whose setup has not run.
+            // A failure disposes it rather than leaving a live runtime nothing owns.
+            if (options.ConfigureEngine is { } configure)
+            {
+                try
+                {
+                    Interlocked.Increment(ref engine.InFlight);
+                    await using var lease = new NodeEngineLease(this, engine);
+                    await configure(lease);
+                }
+                catch
+                {
+                    await engine.DisposeAsync();
+                    throw;
+                }
+            }
+
             lock (sync)
                 engines.Add(engine);
 

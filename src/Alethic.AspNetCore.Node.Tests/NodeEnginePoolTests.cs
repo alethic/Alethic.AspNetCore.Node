@@ -30,6 +30,56 @@ public class NodeEnginePoolTests
     }
 
     [TestMethod]
+    public async Task Each_engine_is_configured_before_it_is_used()
+    {
+        var configured = 0;
+
+        var services = BuildServices(o =>
+        {
+            o.EngineCount = 2;
+            o.ConfigureEngine = lease =>
+            {
+                Interlocked.Increment(ref configured);
+
+                // Ordinary node-api-dotnet against that runtime, the same as inside any lease.
+                lease.Run(() => JSValue.RunScript("globalThis.configured = true"));
+                return Task.CompletedTask;
+            };
+        });
+
+        var pool = services.GetRequiredService<NodeEnginePool>();
+        await pool.PrepareAsync();
+
+        // Once per engine, not once per acquisition.
+        Assert.AreEqual(2, configured);
+
+        // And what it did is there for whatever runs next, which is the point of doing it per engine
+        // rather than per call.
+        var module = TestModules.FromText("read.cjs", "module.exports.read = () => globalThis.configured === true;");
+        Assert.IsTrue(await pool.RunAsync(module, exports => Task.FromResult((bool)exports.CallMethod("read"))));
+
+        await services.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task An_engine_that_cannot_be_configured_does_not_join_the_pool()
+    {
+        var services = BuildServices(o => o.ConfigureEngine = _ => throw new InvalidOperationException("bootstrap refused"));
+        var pool = services.GetRequiredService<NodeEnginePool>();
+
+        var module = TestModules.FromText("noop.cjs", "module.exports.value = () => 1;");
+
+        // Loud rather than silent: an engine whose setup did not complete is broken, and serving
+        // from it would be worse than not having it.
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => pool.RunAsync(module, exports => Task.FromResult((int)exports.CallMethod("value"))));
+
+        Assert.AreEqual("bootstrap refused", thrown.Message);
+
+        await services.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task A_pending_timer_does_not_delay_closing()
     {
         // Applications schedule timers that outlive the work they belong to — a cache expiring, a
